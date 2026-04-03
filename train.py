@@ -142,10 +142,25 @@ def extract_thinking(text):
     return None
 
 
+def _to_str(x):
+    """Coerce a completion or prompt to a plain string.
+    TRL may pass strings, lists of message dicts, or other types."""
+    if isinstance(x, str):
+        return x
+    if isinstance(x, list):
+        # List of message dicts like [{'role': 'user', 'content': '...'}]
+        if x and isinstance(x[0], dict) and 'content' in x[0]:
+            return x[0]['content']
+        # List of strings — join them
+        return ' '.join(str(item) for item in x)
+    return str(x)
+
+
 def correctness_reward(completions, answer, **kwargs):
     """Binary correctness: correct=1.0, wrong=0.0."""
     rewards = []
     for comp, gold in zip(completions, answer):
+        comp = _to_str(comp)
         pred = extract_boxed_answer(comp)
         if pred is not None and answers_match(pred, str(gold)):
             rewards.append(1.0)
@@ -159,6 +174,7 @@ def format_reward(completions, **kwargs):
     Single boxed=1.0, multiple=0.5, none=-1.0."""
     rewards = []
     for comp in completions:
+        comp = _to_str(comp)
         boxed_count = len(re.findall(r'\\boxed\{', comp))
         if boxed_count == 1:
             rewards.append(1.0)
@@ -174,6 +190,7 @@ def reasoning_reward(completions, **kwargs):
     Substantive=1.0, brief=0.5, trivial=0.0, missing=-0.3."""
     rewards = []
     for comp in completions:
+        comp = _to_str(comp)
         thinking = extract_thinking(comp)
         if thinking is not None:
             word_count = len(thinking.split())
@@ -196,7 +213,8 @@ def category_specific_reward(completions, prompts, answer, **kwargs):
     """Category-aware answer format validation."""
     rewards = []
     for comp, p in zip(completions, prompts):
-        prompt_text = p[0]['content'] if isinstance(p, list) else p
+        comp = _to_str(comp)
+        prompt_text = _to_str(p)
         qtype = classify_type(prompt_text)
         pred = extract_boxed_answer(comp)
 
