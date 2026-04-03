@@ -28,7 +28,7 @@ from trl import SFTTrainer, SFTConfig, GRPOTrainer, GRPOConfig
 from prepare import (
     MODEL_ID, TRAIN_CSV, classify_type, extract_boxed_answer, answers_match,
     evaluate_model, load_val_data, stratified_sample, METRIC_SUFFIX,
-    VAL_SAMPLES_PER_TYPE,
+    VAL_SAMPLES_PER_TYPE, _tokenize_prompt,
 )
 
 # ============================================================
