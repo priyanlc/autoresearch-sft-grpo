@@ -12,6 +12,19 @@ METRIC: 0.XXXX
 ```
 This is the proportion of correctly answered puzzles on a held-out validation set (30 samples, 5 per category). Higher is better. Maximum is 1.0.
 
+## Known Baselines
+
+| Run | SFT samples | GRPO | USE_COT | Overall | bit_ops | cipher | gravity | numeral | symbol | unit_conv |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Kaggle (4-bit) | 1,200 | failed | False | 0.5000 | 80% | 0% | 0% | 100% | 20% | 100% |
+| A100 (bf16) | 300 | failed | True | 0.4000 | 20% | 0% | 0% | 100% | 20% | 100% |
+
+### Observations
+- numeral and unit_conv are solved — focus elsewhere
+- cipher and gravity score 0% — debug output shows correct format but wrong answers
+- With `USE_COT=True`, the model parroted static templates verbatim instead of reasoning. Inconclusive if harmful (also fewer samples) — worth testing both settings.
+- GRPO crashes on A100 with tensor mismatch (Nemotron Mamba/MoE + TRL incompatibility). SFT fallback is used.
+
 ## What you can modify
 You may ONLY edit `train.py`. Everything in `prepare.py` is read-only.
 
@@ -24,9 +37,10 @@ You may ONLY edit `train.py`. Everything in `prepare.py` is read-only.
 - Reward shaping: partial credit for near-correct answers
 
 **SFT prompt format (high impact):**
-- The chain-of-thought in `_COT_BY_TYPE` — make it more specific or problem-aware
-- Whether SFT includes reasoning at all vs just `\boxed{answer}`
-- Category-specific formatting strategies
+- `USE_COT` flag: toggle static CoT templates on/off (default: False)
+- With `USE_COT=True`, model got template parroting — try with more data or varied templates
+- With `USE_COT=False`, model uses native reasoning via `enable_thinking=True`
+- Category-specific formatting strategies, brief hints (not full reasoning templates)
 
 **GRPO hyperparameters (high impact):**
 - `GRPO_NUM_GENERATIONS`: more = better advantage estimates but slower (2-8)
@@ -86,7 +100,7 @@ Each type has 5 validation samples. Check per-category accuracy to find weak spo
 ## Strategic recommendations
 
 1. **Focus on hard categories**: bit_ops and symbol are where the model struggles most and where gains matter most. Consider oversampling these in training data.
-2. **Category-specific CoT**: The reasoning strategy differs fundamentally per type — bit_ops needs pattern analysis across multiple examples, gravity needs a single formula application. Tailor the SFT reasoning traces accordingly.
+2. **Be cautious with static CoT templates**: With `USE_COT=True`, the model may parrot templates verbatim instead of reasoning. If experimenting with CoT, try dynamic/varied templates or brief hints rather than full static reasoning traces.
 3. **Answer format enforcement**: Each category has a strict format (8-bit binary, 2dp decimal, Roman, etc.). The category_specific_reward should penalize format violations heavily.
 4. **Easy wins first**: numeral, unit_conv, and gravity should be near-perfect with good prompting. If these aren't scoring high, fix prompting before optimizing harder categories.
 5. **Cipher needs character-level reasoning**: The model must build a substitution map character by character. CoT that explicitly constructs the mapping table will help.
@@ -98,5 +112,6 @@ Each type has 5 validation samples. Check per-category accuracy to find weak spo
 - SFT warmup matters: it sets the starting point for GRPO exploration
 - If GRPO degrades performance vs SFT-only, try reducing `GRPO_LR` or increasing `GRPO_BETA`
 - Check per-category accuracy to find which puzzle types need attention
-- The model uses `enable_thinking=True` at inference — ensure SFT and GRPO both use it
+- The model uses `enable_thinking=True` at inference — with `USE_COT=False`, the model fills `<think>` with its own reasoning
+- If GRPO crashes with tensor mismatch, this is a known Mamba/MoE + TRL issue — SFT-only is still a valid approach
 - If a change crashes, revert and try something smaller

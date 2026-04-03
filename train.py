@@ -16,6 +16,7 @@ import json
 import time
 
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+os.environ['TRITON_JIT_DISABLE_OPT'] = '1'  # Mitigate Triton kernel issues with Mamba layers
 
 import polars as pl
 import torch
@@ -36,8 +37,8 @@ from prepare import (
 # ============================================================
 
 # Data
-SFT_SAMPLES_PER_TYPE = 50         # 6 * 50 = 300 SFT samples (keep small for speed)
-GRPO_SAMPLES_PER_TYPE = 50        # 6 * 50 = 300 GRPO prompts
+SFT_SAMPLES_PER_TYPE = 20         # 6 * 20 = 120 SFT samples (small for fast autoresearch iteration)
+GRPO_SAMPLES_PER_TYPE = 20        # 6 * 20 = 120 GRPO prompts
 
 # SFT Phase (warmup)
 SFT_LR = 2e-4
@@ -74,6 +75,11 @@ MAX_GRAD_NORM = 1.0
 EVAL_MAX_NEW_TOKENS = 256
 EVAL_BATCH_SIZE = 4
 
+# SFT CoT (chain-of-thought)
+USE_COT = False                   # Toggle: True = add static CoT in <think> tags, False = direct \boxed{answer}
+                                  # Note: with USE_COT=True (50 samples/type), model parroted templates verbatim
+                                  # instead of reasoning. Inconclusive if harmful — may improve with more data.
+
 # Output
 OUTPUT_DIR = './adapter'
 
@@ -82,7 +88,7 @@ OUTPUT_DIR = './adapter'
 # === SFT PROMPT FORMAT — Controls what model learns in warmup
 # ============================================================
 
-# Brief category-specific reasoning traces for SFT
+# Category-specific reasoning traces (used when USE_COT=True)
 _COT_BY_TYPE = {
     'bit_ops': "Let me analyze each input-output pair to identify the bit transformation rule. I'll compare the binary strings to find the pattern, then apply it to the new input.",
     'gravity': "I need to determine the gravitational constant g from the given time-distance pairs using d = 0.5*g*t^2. I'll solve for g using a data point, then compute the distance for the new time.",
@@ -98,13 +104,18 @@ def build_sft_text(example, tokenizer):
     """Format a training example for SFT warmup.
 
     Modify this function to change what the model learns during SFT.
-    Includes brief reasoning to align with GRPO's reasoning reward.
+    When USE_COT=False, the model learns answer format only; native reasoning
+    via enable_thinking=True handles the <think> block at inference.
+    When USE_COT=True, static CoT templates are included in the <think> block.
     """
     user_msg = example['prompt'] + METRIC_SUFFIX
 
-    qtype = classify_type(example['prompt'])
-    cot = _COT_BY_TYPE.get(qtype, _COT_DEFAULT)
-    assistant_msg = f'<think>\n{cot}\n</think>\n\\boxed{{{example["answer"]}}}'
+    if USE_COT:
+        qtype = classify_type(example['prompt'])
+        cot = _COT_BY_TYPE.get(qtype, _COT_DEFAULT)
+        assistant_msg = f'<think>\n{cot}\n</think>\n\\boxed{{{example["answer"]}}}'
+    else:
+        assistant_msg = f'\\boxed{{{example["answer"]}}}'
 
     messages = [
         {'role': 'user', 'content': user_msg},
@@ -456,6 +467,17 @@ def main():
     except Exception as e:
         print(f'GRPO failed: {e}')
         print(f'SFT fallback adapter still at {OUTPUT_DIR}')
+        if 'size of tensor' in str(e).lower():
+            print(f'\n--- GRPO TENSOR MISMATCH DIAGNOSIS ---')
+            print(f'Known incompatibility: Nemotron hybrid Mamba/MoE + TRL GRPOTrainer.')
+            print(f'See: https://github.com/huggingface/trl/issues/3681')
+            print(f'See: https://github.com/unslothai/unsloth/issues/3387')
+            print(f'Possible fixes:')
+            print(f'  1. Upgrade TRL: pip install -U trl')
+            print(f'  2. Use 4-bit quantization (changes tensor shapes)')
+            print(f'  3. Use Unsloth patched GRPOTrainer')
+            print(f'  4. SFT-only is still a valid approach (current fallback)')
+            print(f'--- END DIAGNOSIS ---')
 
     del grpo_trainer
     gc.collect()
