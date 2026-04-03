@@ -400,6 +400,7 @@ def main():
     grpo_config = GRPOConfig(
         output_dir=OUTPUT_DIR,
         num_generations=GRPO_NUM_GENERATIONS,
+        generation_batch_size=GRPO_NUM_GENERATIONS,
         max_completion_length=GRPO_MAX_COMPLETION,
         beta=GRPO_BETA,
         temperature=GRPO_TEMPERATURE,
@@ -463,6 +464,26 @@ def main():
 
     if torch.cuda.is_available():
         print(f'Peak VRAM: {torch.cuda.max_memory_allocated()/1024**3:.1f} GB')
+
+    # === Debug: print raw outputs for failing categories ===
+    print('\n=== Debug: Raw outputs for weak categories ===')
+    device = torch.device('cuda:0') if torch.cuda.is_available() else torch.device('cpu')
+    model.eval()
+    for example in val_data:
+        qtype = example['qtype']
+        stats = by_type.get(qtype, {})
+        acc = stats.get('correct', 0) / max(stats.get('total', 1), 1)
+        if acc < 0.5:  # Only debug categories scoring below 50%
+            messages = [{'role': 'user', 'content': example['prompt'] + METRIC_SUFFIX}]
+            ids = _tokenize_prompt(messages, tokenizer).unsqueeze(0).to(device)
+            with torch.no_grad():
+                out = model.generate(ids, max_new_tokens=EVAL_MAX_NEW_TOKENS, do_sample=False,
+                                     pad_token_id=tokenizer.pad_token_id)
+            response = tokenizer.decode(out[0, ids.shape[1]:], skip_special_tokens=True)
+            pred = extract_boxed_answer(response)
+            match = answers_match(pred, example['answer']) if pred else False
+            print(f"\n[{qtype}] gold={example['answer']}, pred={pred}, match={match}")
+            print(f"  raw: {response[:400]}")
 
     # === THE METRIC LINE — autoresearch parses this ===
     print(f'METRIC: {overall:.4f}')
