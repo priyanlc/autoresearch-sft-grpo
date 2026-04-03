@@ -1,0 +1,17 @@
+# Core ML
+torch>=2.2.0
+transformers==4.51.3
+accelerate>=0.28.0
+
+# Fine-tuning
+peft>=0.10.0
+trl>=0.8.0
+datasets>=2.18.0
+
+# Model-specific
+mamba_ssm
+causal_conv1d
+sentencepiece
+
+# Data
+polars>=0.20.0
