@@ -1,0 +1,7 @@
+adapter/
+adapter_*/
+__pycache__/
+*.pyc
+data/
+*.bak
+adapter/

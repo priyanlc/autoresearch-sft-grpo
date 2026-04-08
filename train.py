@@ -37,7 +37,7 @@ from prepare import (
 # ============================================================
 
 # Data
-SFT_SAMPLES_PER_TYPE = 20         # 6 * 20 = 120 SFT samples (small for fast autoresearch iteration)
+SFT_SAMPLES_PER_TYPE = 200        # 6 * 200 = 1200 SFT samples (matching Kaggle baseline)
 GRPO_SAMPLES_PER_TYPE = 20        # 6 * 20 = 120 GRPO prompts
 
 # SFT Phase (warmup)
@@ -72,11 +72,11 @@ WARMUP_RATIO = 0.1
 MAX_GRAD_NORM = 1.0
 
 # Evaluation
-EVAL_MAX_NEW_TOKENS = 256
-EVAL_BATCH_SIZE = 4
+EVAL_MAX_NEW_TOKENS = 512         # Need enough for thinking + boxed answer
+EVAL_BATCH_SIZE = 1               # Reduced to avoid OOM on A100 80GB
 
 # SFT CoT (chain-of-thought)
-USE_COT = False                   # Toggle: True = add static CoT in <think> tags, False = direct \boxed{answer}
+USE_COT = True                    # Teach thinking pattern that eval uses
                                   # Note: with USE_COT=True (50 samples/type), model parroted templates verbatim
                                   # instead of reasoning. Inconclusive if harmful — may improve with more data.
 
@@ -100,6 +100,47 @@ _COT_BY_TYPE = {
 _COT_DEFAULT = "Let me analyze the pattern in the given examples and apply it to solve the problem."
 
 
+def _build_dynamic_cot(qtype, prompt, answer):
+    """Build a category-specific reasoning trace using example data + answer."""
+    if qtype == 'cipher':
+        # Extract cipher/plain pairs from the prompt to build a substitution map
+        import re as _re
+        pairs = _re.findall(r'([a-z\s]+?)\s*->\s*([a-z\s]+)', prompt.lower())
+        mapping = {}
+        for cipher, plain in pairs:
+            cipher = cipher.strip()
+            plain = plain.strip()
+            if len(cipher) == len(plain):
+                for c, p in zip(cipher, plain):
+                    if c.isalpha() and p.isalpha():
+                        mapping[c] = p
+        if mapping:
+            map_str = ', '.join(f'{k}->{v}' for k, v in sorted(mapping.items()))
+            return (f"I'll build the substitution map from the examples. Mapping: {map_str}. "
+                    f"Applying this to the cipher gives: {answer}")
+    elif qtype == 'gravity':
+        # Try to extract a (t, d) pair to compute g
+        import re as _re
+        m = _re.search(r't\s*=\s*([\d.]+).*?d\s*=\s*([\d.]+)', prompt, _re.DOTALL | _re.IGNORECASE)
+        if m:
+            t, d = float(m.group(1)), float(m.group(2))
+            g = 2 * d / (t * t) if t > 0 else 0
+            return (f"Using d = 0.5*g*t^2: g = 2d/t^2 = 2*{d}/{t}^2 = {g:.4f}. "
+                    f"Apply to find d for the new t. Answer: {answer}")
+    elif qtype == 'unit_conv':
+        import re as _re
+        m = _re.search(r'([\d.]+)\s*[a-zA-Z]+\s*->\s*([\d.]+)', prompt)
+        if m:
+            inp, out = float(m.group(1)), float(m.group(2))
+            factor = out / inp if inp > 0 else 1
+            return (f"Conversion factor = output/input = {out}/{inp} = {factor:.4f}. "
+                    f"Apply factor to new input. Answer: {answer}")
+    elif qtype == 'bit_ops':
+        return (f"Comparing input/output bit patterns to identify the operation "
+                f"(shift, rotate, XOR, AND, OR, NOT, or combinations). Result: {answer}")
+    return None
+
+
 def build_sft_text(example, tokenizer):
     """Format a training example for SFT warmup.
 
@@ -112,7 +153,9 @@ def build_sft_text(example, tokenizer):
 
     if USE_COT:
         qtype = classify_type(example['prompt'])
-        cot = _COT_BY_TYPE.get(qtype, _COT_DEFAULT)
+        # Try dynamic CoT first; fall back to static template
+        dynamic_cot = _build_dynamic_cot(qtype, example['prompt'], example['answer'])
+        cot = dynamic_cot if dynamic_cot else _COT_BY_TYPE.get(qtype, _COT_DEFAULT)
         assistant_msg = f'<think>\n{cot}\n</think>\n\\boxed{{{example["answer"]}}}'
     else:
         assistant_msg = f'\\boxed{{{example["answer"]}}}'
@@ -484,6 +527,7 @@ def main():
     torch.cuda.empty_cache()
 
     # ---- Evaluate ----
+    model.config.use_cache = False  # Nemotron cache has bugs; disable for safety
     print('\nEvaluating...')
     overall, by_type = evaluate_model(
         model, tokenizer, val_data,

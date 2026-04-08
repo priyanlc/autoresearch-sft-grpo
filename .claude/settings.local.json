@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(kill 2965)",
+      "Bash(tee /tmp/train_run1.log)",
+      "Bash(nvidia-smi)",
+      "Bash(strace -p 3503 -e trace=write -c)",
+      "Bash(timeout 10 cat)",
+      "Bash(kill -9 3503)",
+      "Bash(pip show:*)"
+    ]
+  }
+}
