@@ -106,6 +106,17 @@ Each type has 5 validation samples. Check per-category accuracy to find weak spo
 5. **Cipher needs character-level reasoning**: The model must build a substitution map character by character. CoT that explicitly constructs the mapping table will help.
 6. **Symbol is the long tail**: With arbitrary rules and 36 unique characters, symbol may have a natural accuracy ceiling. Don't over-invest here at the expense of other categories.
 
+## Status Logging
+
+Every 40 minutes, append a status update to `STATUS.md` with:
+- Current timestamp
+- Last experiment's METRIC and per-category scores
+- What was tried and whether it helped or hurt
+- What you plan to try next
+- Any errors or blockers encountered
+
+This keeps a human-readable log of progress even during long autonomous runs.
+
 ## Tips
 - The reward functions are the most powerful lever — GRPO learns whatever the rewards incentivize
 - Correctness reward dominates; other rewards are auxiliary signals
@@ -115,3 +126,16 @@ Each type has 5 validation samples. Check per-category accuracy to find weak spo
 - The model uses `enable_thinking=True` at inference — with `USE_COT=False`, the model fills `<think>` with its own reasoning
 - If GRPO crashes with tensor mismatch, this is a known Mamba/MoE + TRL issue — SFT-only is still a valid approach
 - If a change crashes, revert and try something smaller
+
+## NVFP4 Branch Notes
+
+This branch uses NVFP4 quantization on Blackwell GPUs (RTX PRO 6000):
+
+- **Base model ~17GB** instead of ~60GB in bf16 → more VRAM for training
+- **FPQuantLinear `__bases__` hack** is required — PEFT doesn't support FPQuantLinear natively. The hack is applied AFTER model loading in main(). Do NOT remove it.
+- **`LORA_DROPOUT = 0.0`** is required — FPQuantLinear with PEFT doesn't support dropout
+- **`device_map={'': 0}`** is required — FPQuantConfig doesn't support CPU offload
+- **Synthetic data** (3000 samples) provides perfect CoT for all 6 categories, compensating for weak dynamic CoT on real data
+- **Cosine reward** replaces binary correctness — prevents zero-gradient when all completions are correct
+- **`ground_truth`** column name in GRPO dataset (not `answer`) to avoid TRL conflicts
+- If NVFP4 fails, set `USE_NVFP4 = False` to fall back to bf16

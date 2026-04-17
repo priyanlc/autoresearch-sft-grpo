@@ -1,17 +1,25 @@
 # Core ML
-torch>=2.2.0
-transformers==4.51.3
-accelerate>=0.28.0
+torch>=2.7.0
+transformers>=5.0.0
+accelerate>=1.4.0
 
 # Fine-tuning
-peft>=0.10.0
-trl>=0.8.0
-datasets>=2.18.0
+peft>=0.15.0
+trl>=0.29.0
+datasets>=4.0.0
 
 # Model-specific
-mamba_ssm
-causal_conv1d
+mamba_ssm>=2.2.2
+causal_conv1d>=1.4.0
 sentencepiece
+bitsandbytes>=0.49.0
+
+# NVFP4 (Blackwell)
+fp_quant
+qutlass
+
+# Logging
+wandb>=0.17.0
 
 # Data
 polars>=0.20.0
