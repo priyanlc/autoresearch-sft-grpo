@@ -1,44 +1,27 @@
-# Autoresearch SFT+GRPO — NVFP4 Blackwell Branch
+# Autoresearch SFT+GRPO — Run Log
 
-**Branch:** `nvfp4-blackwell`
-**Created:** 2026-04-12
-**Base:** main branch (METRIC 0.5333, bf16 on A100)
+This is the append-only heartbeat log for autoresearch runs on this repo. The contract for what to log and when is in `program.md` § "Logging & Reporting".
 
-## Purpose
+For the configuration delta between branches (e.g., `main` vs `nvfp4-blackwell`), see `BRANCH_NOTES.md`.
 
-This branch adapts the autoresearch pipeline for Kaggle's RTX PRO 6000 (Blackwell) using
-NVFP4 quantization via FPQuantConfig. Key changes from main:
+For structured failure entries, see `FRICTION.md`.
 
-1. **NVFP4 model loading** — base model ~17GB instead of ~60GB in bf16
-2. **FPQuantLinear `__bases__` hack** — patches PEFT compatibility after model load
-3. **Synthetic data** — 3000 additional samples with perfect CoT for all 6 categories
-4. **Cosine-scaled reward** — replaces binary correctness for GRPO
-5. **Updated training config** — adamw_8bit, packing, aggressive gradient clipping
+For per-experiment metric history, see `results.tsv`.
 
-## Configuration delta from main
+---
 
-| Parameter | main (bf16) | nvfp4-blackwell |
-|-----------|-------------|-----------------|
-| USE_NVFP4 | N/A | True |
-| SFT_LR | 2e-4 | 5e-5 |
-| BATCH_SIZE | 1 | 2 |
-| MAX_GRAD_NORM | 1.0 | 0.1 |
-| WEIGHT_DECAY | 0.0 | 0.1 |
-| optim | adamw_torch | adamw_8bit |
-| packing | False | True |
-| SFT_MAX_SEQ_LEN | 1024 | 2048 |
-| LORA_DROPOUT | 0.05 | 0.0 (FPQuantLinear req) |
-| GRPO_BETA | 0.01 | 0.0 (no ref model) |
-| Synthetic data | None | 500/type = 3000 |
-| Reward | Binary + weighted | Cosine-scaled |
+<!--
+Append new status blocks below this divider, **newest at the top**.
 
-## Known requirements
+Block template (per program.md):
 
-- **Blackwell GPU** (RTX PRO 6000 or similar) for real NVFP4
-- `pip install fp_quant qutlass --no-build-isolation` (requires CUDA 12.8+)
-- `pip install mamba_ssm causal_conv1d` (CUDA extensions)
-- PEFT does NOT natively support FPQuantLinear — the `__bases__` hack is required
+### YYYY-MM-DD HH:MM UTC — <one-line summary>
 
-## Fallback
+- **Current best METRIC:** 0.XXXX (per-category: bit_ops X%, cipher X%, gravity X%, numeral X%, symbol X%, unit_conv X%)
+- **Experiments since last status:** N (most informative: <one line>)
+- **What was tried:** <bullets>; net effect: helped / hurt / neutral
+- **Next:** <plan + reason>
+- **Blockers:** <FRICTION.md ids, e.g., F-003, F-007>
 
-If the code fails, still stick with NVFP4, fix the code in train.py config and continute until successful. 
+End-of-session summary blocks go at the very top under the heading `### Session Summary YYYY-MM-DD`.
+-->

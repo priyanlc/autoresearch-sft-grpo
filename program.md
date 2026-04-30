@@ -106,16 +106,62 @@ Each type has 5 validation samples. Check per-category accuracy to find weak spo
 5. **Cipher needs character-level reasoning**: The model must build a substitution map character by character. CoT that explicitly constructs the mapping table will help.
 6. **Symbol is the long tail**: With arbitrary rules and 36 unique characters, symbol may have a natural accuracy ceiling. Don't over-invest here at the expense of other categories.
 
-## Status Logging
+## Logging & Reporting
 
-Every 40 minutes, append a status update to `STATUS.md` with:
-- Current timestamp
-- Last experiment's METRIC and per-category scores
-- What was tried and whether it helped or hurt
-- What you plan to try next
-- Any errors or blockers encountered
+> **Why this section is non-negotiable:** the human author of this loop is writing a follow-up blog post on the autoresearch pattern. The blog post depends on being able to reconstruct what happened during this run — what was tried, what broke, what stuck, and why — *without* re-deriving it from raw stdout/stderr after the fact. Four artifacts must be kept current. Treat them as part of the contract, not optional decoration.
 
-This keeps a human-readable log of progress even during long autonomous runs.
+### 1. `results.tsv` — one row per experiment, including failures
+
+Every `python train.py` invocation appends one row, even if it crashed before reaching the METRIC line. Schema is fixed (header already in the file):
+
+```
+commit  metric  bit_ops  cipher  gravity  numeral  symbol  unit_conv  status  description
+```
+
+- `commit`: short hash of the `train.py` state that ran (`git rev-parse --short HEAD`)
+- `metric`: overall accuracy as `0.XXXX`, or `FAILED` if the run did not produce a METRIC line
+- per-category columns: percentage as integer (e.g., `60` for 60%), or empty string for failed runs
+- `status`: one of `success` / `failed` / `aborted`
+- `description`: ≤120 chars, one-line summary of what was tried this experiment (e.g., `cosine reward, GRPO temp=0.5, +500 synth/cat`)
+
+If a run fails before printing METRIC, still append the row — `status=failed`, `description=` includes the failure signature (e.g., `qutlass build failed: missing CUDA 12.8 headers`).
+
+### 2. `STATUS.md` — append-only progress log
+
+Append a status block every ~40 minutes *and* after any experiment that changed the trajectory. **Do not overwrite prior entries** — STATUS.md is a ledger. Each block:
+
+- **Timestamp** (UTC)
+- **Current best METRIC** and per-category breakdown
+- **Experiments since last status:** count + 1-line summary of the most informative one
+- **What was tried** and whether it helped / hurt / was neutral
+- **What you plan to try next**, and the reason
+- **Any errors or blockers** — link to the `FRICTION.md` entry id (e.g., "see F-007")
+
+### 3. `FRICTION.md` — structured failure log
+
+When a non-trivial failure occurs (anything that requires more than a one-line config tweak to resolve), add a numbered entry to `FRICTION.md` using the template at the top of that file. Each entry must include:
+
+- **id** (sequential, e.g., `F-007`)
+- **timestamp** (UTC)
+- **phase**: one of `env_install`, `model_load`, `sft`, `grpo`, `eval`, `cleanup`, `other`
+- **signature**: the actual error message or observed symptom (truncate stacktraces to the most informative ~10 lines)
+- **hypothesized root cause** — be specific; it's OK to say "uncertain"
+- **attempts**: bulleted list of what was tried, each with outcome (`worked` / `no effect` / `made it worse` / `crashed differently`)
+- **final state**: `resolved` / `worked-around` / `punted` / `open`
+
+Friction entries are **the most valuable artifact for the follow-up blog post**. Be specific about what was actually tried, even when nothing worked — *especially* when nothing worked. "I tried X, Y, Z and none of them moved it" is publishable; "GRPO didn't work" is not.
+
+### 4. End-of-session summary
+
+Before the loop terminates (out of time, out of disk, or human-stopped), prepend a final block to `STATUS.md` titled `### Session Summary YYYY-MM-DD`:
+
+- Best METRIC achieved + per-category breakdown
+- Number of experiments run, with success/failure split
+- Top 3 friction items (with `FRICTION.md` ids)
+- Open problems / what to try next session
+- One-paragraph reflection: what surprised you about this run
+
+This is the section the human reads first when returning to the loop.
 
 ## Tips
 - The reward functions are the most powerful lever — GRPO learns whatever the rewards incentivize
