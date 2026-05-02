@@ -826,6 +826,9 @@ def main():
         # Wrap trainer construction + training in try block so config
         # validation errors also fall back to SFT gracefully
         print(f'GRPO: {len(grpo_dataset)} prompts, {GRPO_NUM_GENERATIONS} gens/prompt, batch={grpo_batch}')
+        # Initialise before try so the except/cleanup paths can safely reference it
+        # even when GRPOTrainer(...) raises during construction (UnboundLocalError otherwise).
+        grpo_trainer = None
         try:
             grpo_trainer = GRPOTrainer(
                 model=model,
@@ -843,7 +846,9 @@ def main():
             print(f'Reloading SFT fallback adapter from {OUTPUT_DIR}...')
             # Reload the clean SFT adapter to avoid evaluating partially-mutated weights
             from peft import PeftModel
-            del grpo_trainer
+            if grpo_trainer is not None:
+                del grpo_trainer
+                grpo_trainer = None
             del model
             gc.collect()
             torch.cuda.empty_cache()
@@ -853,7 +858,6 @@ def main():
                     mod.is_fast_path_available = False
             model = PeftModel.from_pretrained(base_model, OUTPUT_DIR)
             print(f'SFT adapter reloaded successfully.')
-            grpo_trainer = None  # already deleted above
 
         if grpo_trainer is not None:
             del grpo_trainer

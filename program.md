@@ -1,9 +1,60 @@
 # Autoresearch: SFT + GRPO for Nemotron Reasoning Challenge
 
-## Goal
-Maximize **validation accuracy** on 6 types of "Alice's Wonderland" reasoning puzzles by optimizing a two-phase training pipeline:
-1. **SFT warmup** — teaches the model answer format and basic reasoning patterns
-2. **GRPO** — reinforcement learning that rewards correct answers, good formatting, and reasoning
+> **Plan reference:** the strategic plan for this branch is `nemotron-vault/wiki/sft-only-nvfp4-plan.md`. When in doubt about *why* a change is being made, that file is the source of truth. This file (`program.md`) is the operational instruction sheet for the autoresearch agent.
+
+## Active Mode (as of 2026-05-02): SFT-Only on `nvfp4-blackwell`
+
+This branch is being run in **SFT-only mode** (`SKIP_GRPO=True` in `train.py`). GRPO is a known crash on Mamba/MoE + TRL and the SFT path is now the primary research track. Do not flip `SKIP_GRPO=False` unless explicitly testing GRPO loading; the SFT-only mode is the default and the comparison baseline.
+
+### Preconditions (the human handles these before you start)
+
+When the autoresearch agent is invoked, the following are already true. **Confirm them with the commands below; abort and ask if any check fails.** Do not try to fix these yourself — they're the human's responsibility per `wiki/01-runpod-bootstrap.md`.
+
+| Precondition | Verify command | Expected |
+|---|---|---|
+| cwd is the autoresearch directory | `pwd` | path ends in `/autoresearch-sft-grpo` |
+| Branch is `nvfp4-blackwell` | `git rev-parse --abbrev-ref HEAD` | `nvfp4-blackwell` |
+| venv is active | `which python` | path contains `.venv/bin/python` |
+| `train.csv` is present | `ls data/train.csv` | file exists |
+| HF + W&B authenticated | `env \| grep -E '^(HF_TOKEN\|WANDB_API_KEY)='` | both set |
+
+### Pre-flight verification — run before applying Tier 1
+
+Codex review (2026-05-02) flagged the `dtype=torch.bfloat16` kwarg at `train.py:679` as potentially wrong (suggesting `torch_dtype` instead). This is **likely a false positive** — `requirements.txt` pins `transformers>=5.0.0`, where `dtype` is the canonical name and `torch_dtype` is the deprecated alias. **But verify on the actual environment before any T1 work**, because if the env somehow ends up on transformers <5 the kwarg is silently ignored and the model loads at the wrong dtype, blowing the memory budget on the very first run.
+
+**Verification command** — run on the RunPod pod that will execute the training:
+
+```bash
+python -c "import transformers, inspect; sig = inspect.signature(transformers.AutoModelForCausalLM.from_pretrained); params = list(sig.parameters.keys()); print(f'transformers={transformers.__version__}'); print('uses dtype' if 'dtype' in params else 'uses torch_dtype' if 'torch_dtype' in params else 'NEITHER — investigate')"
+```
+
+**Decision tree:**
+
+| Output | Action |
+|---|---|
+| `transformers=5.x.y` + `uses dtype` | Current code is correct. No change. Record the verification output in `STATUS.md`. |
+| `transformers=4.x.y` + `uses torch_dtype` | The version pin in `requirements.txt` is being violated. **Fix the pin first** (this is part of T1.3) — don't rename the kwarg in `train.py`. |
+| `NEITHER` | Investigate — possibly the install is broken. Halt before T1 and add a `FRICTION.md` entry. |
+
+If verification confirms the env matches the pin, proceed to Tier 1. If it diverges, fix the env via T1.3 first, then re-verify.
+
+### Tier 1 changes — apply before any sweeping
+
+These are one-time correctness/cleanup improvements derived from the latest NVFP4 research. Each lands as its own commit with a `T1.x:` prefix in the commit message.
+
+| ID | Change | Status |
+|---|---|---|
+| T1.1 | Add `forward_method='quest'` to `FPQuantConfig(...)` (`abs_max` is PTQ-tuned; `quest` is QAT-tuned per HF FP-Quant docs) | TODO — agent applies |
+| T1.2 | Replace `for name, mod in sys.modules.items():` Mamba fast-path patch with explicit `import` of the `modeling_nemotron_h` module, then set `is_fast_path_available = False` on it directly | TODO — agent applies |
+| T1.3 | Pin all package versions in `requirements.txt` to current working set (`pip freeze` snapshot) | TODO — agent applies |
+| T1.4 | Remove duplicate `model.gradient_checkpointing_enable()` call (`SFTConfig(gradient_checkpointing=True)` already covers it). Keep `enable_input_require_grads()` — that's not redundant. | TODO — agent applies |
+
+After T1.1–T1.4 each pass, run end-to-end with `SKIP_GRPO=True` and confirm METRIC ≥ pre-T1 baseline. T1.1 should be applied and validated *first*, alone, before stacking T1.2–T1.4 — it's the change with the most uncertainty about whether it helps the LoRA-on-frozen-NVFP4 case.
+
+### Goal
+Maximize **validation accuracy** on 6 types of "Alice's Wonderland" reasoning puzzles via SFT-only training:
+1. **SFT** — teaches the model answer format, reasoning patterns, and category-specific solution strategies
+2. **GRPO** — *deprioritized*; kept in code path but `SKIP_GRPO=True` is the default
 
 ## Metric
 The single metric to optimize is printed at the end of `train.py`:
@@ -13,6 +64,8 @@ METRIC: 0.XXXX
 This is the proportion of correctly answered puzzles on a held-out validation set (30 samples, 5 per category). Higher is better. Maximum is 1.0.
 
 ## Known Baselines
+
+These pre-T1 baselines are **legacy** — the new SFT-only baseline gets captured in `results.tsv` and `STATUS.md` once T1.1–T1.4 land. Tier 2 experiments must beat the post-T1 SFT-only baseline, not these legacy rows.
 
 | Run | SFT samples | GRPO | USE_COT | Overall | bit_ops | cipher | gravity | numeral | symbol | unit_conv |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -30,48 +83,63 @@ You may ONLY edit `train.py`. Everything in `prepare.py` is read-only.
 
 ### Things worth trying (in rough priority order):
 
-**Reward function design (highest impact):**
-- Reward weights: `W_CORRECTNESS`, `W_FORMAT`, `W_REASONING`, `W_CATEGORY_BONUS`
-- Reward function logic: modify how correctness, format, reasoning, and category rewards are computed
-- Add new reward functions (e.g., answer-length penalty, confidence calibration)
-- Reward shaping: partial credit for near-correct answers
+**Tier 2 sweep targets (highest impact — start here after Tier 1 lands):**
 
-**SFT prompt format (high impact):**
+These are the pre-identified, research-backed sweep axes. Each variation = one row in `results.tsv` with `description` capturing what was changed. Keep `SKIP_GRPO=True` locked through this phase — mixing GRPO experiments contaminates the comparison.
+
+| ID | Sweep | Values | Why |
+|---|---|---|---|
+| T2.1 | `MAX_GRAD_NORM` | {0.1 baseline, 0.5, 1.0} | Current 0.1 may over-clip NVFP4 gradients (backward_dtype="bf16" already adds noise) |
+| T2.2 | Synthetic ratio | {30%, 50%, 71% baseline} | 71% synth may hurt diversity per `paper-synthetic-data-diversity.md` |
+| T2.3 | LoRA targets | {all FPQuantLinear, skip-last-15%-of-layers} | Matches NVIDIA Super recipe — last 15% kept high-precision |
+| T2.4 | `MODE` flag | {`direct_nvfp4` baseline, `bf16_then_qat`} | NVIDIA's gpt-oss recipe upcasts before SFT, then QAT. Adds ~10 min startup but is the published path. |
+| T2.5 | Loader | {FPQuantConfig baseline, Unsloth} | NVIDIA Unsloth blog claims 2× speed, 70% less VRAM on Blackwell |
+
+**Reward function design (deprioritized — only relevant when GRPO re-enabled):**
+- Reward weights, reward function logic, new reward functions, reward shaping
+- These live in `train.py` already but only fire when `SKIP_GRPO=False`
+
+**SFT prompt format (medium impact):**
 - `USE_COT` flag: toggle static CoT templates on/off (default: False)
 - With `USE_COT=True`, model got template parroting — try with more data or varied templates
 - With `USE_COT=False`, model uses native reasoning via `enable_thinking=True`
 - Category-specific formatting strategies, brief hints (not full reasoning templates)
 
-**GRPO hyperparameters (high impact):**
-- `GRPO_NUM_GENERATIONS`: more = better advantage estimates but slower (2-8)
-- `GRPO_TEMPERATURE`: controls exploration during training (0.5-1.0)
-- `GRPO_BETA`: KL penalty strength (0.0-0.1, 0 = no constraint)
-- `GRPO_MAX_COMPLETION`: max tokens for generation (256-1024)
-- `GRPO_LR`: learning rate (1e-6 to 5e-5)
-
-**Data strategy (high impact):**
-- `SFT_SAMPLES_PER_TYPE` and `GRPO_SAMPLES_PER_TYPE`: sample counts
-- Using different data for SFT vs GRPO (currently non-overlapping)
-- Weighted sampling toward harder categories
-- Curriculum ordering
+**Data strategy (medium impact):**
+- `SFT_SAMPLES_PER_TYPE`: sample count
+- Weighted sampling toward harder categories (bit_ops, symbol)
+- Curriculum ordering — easy categories (numeral, unit_conv, gravity) first, then hard
 
 **LoRA configuration (medium impact):**
 - `LORA_RANK`: adapter rank (1-32, competition max is 32)
 - `LORA_ALPHA`: scaling factor (typically 1x or 2x the rank)
-- `LORA_DROPOUT`: regularization (0.0 to 0.1)
-- `TARGET_MODULES`: which layers to adapt
+- `LORA_DROPOUT`: must stay 0.0 (FPQuant constraint — see Branch Notes)
+- `TARGET_MODULES`: see T2.3 for the principled sweep
 
 **SFT hyperparameters (medium impact):**
 - `SFT_LR`: learning rate (1e-5 to 5e-4)
 - `SFT_EPOCHS`: number of passes (1-3)
 - `SFT_MAX_SEQ_LEN`: max sequence length
 
+**Tier 3 — DO NOT IMPLEMENT YET (scaffolding only):**
+
+These are research bets requiring multi-run setup. The agent may only add the *flag definitions* (default `False`, no-op when off) so future work can enable them without restructuring. Do not implement bodies. Document each new flag in `BRANCH_NOTES.md`.
+
+- `USE_DISTILLATION` — load BF16 teacher (cached logits path)
+- `USE_TORCHAO_QAT` — switch loader to TorchAO `NVFP4DynamicActivationNVFP4WeightConfig`
+- `USE_GPTQ_PREPROCESS` — pre-process weights before NVFP4 quantization
+- `USE_FOUR_OVER_SIX` — adaptive block scaling (arxiv 2512.02010)
+- `USE_PEFT_CUSTOM_DISPATCH` — replace `__bases__` hack with PEFT `custom_module_mapping` API (T3.5; verified 2026-05-02 that no upstream `dispatch_fp_quant` exists in PEFT ≤ 0.19.1)
+
 ## Constraints
 - LoRA rank must be <= 32 (competition rule)
 - The model must output answers in `\boxed{}` format
-- Training must complete within the time budget (~25 min target)
+- No per-experiment wall-clock cap — let runs complete on their own terms
 - Do not modify `prepare.py`
 - SFT and GRPO data should not overlap with validation (handled automatically)
+- Keep `SKIP_GRPO=True` for all Tier 1 / Tier 2 work; do not toggle to test GRPO unless explicitly running the co-existence smoke test (see Branch Hygiene)
+- `LORA_DROPOUT` must stay `0.0` (FPQuantLinear + PEFT constraint)
+- `device_map={'': 0}` is required (FPQuantConfig has no CPU offload)
 
 ## The 6 puzzle types
 
@@ -163,6 +231,29 @@ Before the loop terminates (out of time, out of disk, or human-stopped), prepend
 
 This is the section the human reads first when returning to the loop.
 
+## Branch Hygiene
+
+This branch is the source of truth for the SFT-only research track and is referenced by the LinkedIn tutorial draft. Keep `git log` parseable as an experiment record.
+
+- **One commit per change ID.** T1.1 = one commit, T2.3 = one commit. Don't squash.
+- **Commit message prefix.** Format: `T1.1: <one-line summary>` so `git log --oneline` matches the tier table.
+- **Revert, don't fix-forward, on regressions.** If a Tier 2 experiment hurts METRIC, `git revert` it rather than patching on top — keeps the experiment record honest.
+- **`BRANCH_NOTES.md` gets a per-tier section** so anyone reading the branch later sees the chronology and which T-IDs landed.
+- **Co-existence smoke test.** After Phase 3 (Tier 2 sweeps complete), run *one* `SKIP_GRPO=False` invocation just to confirm the GRPO loading path still imports and reaches the trainer (it's expected to crash downstream — that's a known issue, not a regression). Catches breakage early in case future GRPO work resumes.
+
+## Validation Contract (every Tier transition)
+
+Each run produces (already wired in `train.py`):
+1. **METRIC** — primary number, parsed by autoresearch loop
+2. **Per-category accuracy** — diagnoses where gains came from
+3. **Peak VRAM + tokens/sec** — for the LinkedIn article's benchmarks section
+4. **W&B run URL** — recorded in `STATUS.md`
+
+Plus, **once per Tier transition** (not every run, too expensive):
+5. **Adapter-on-BF16 sanity check** — train adapter on NVFP4 base, then load it onto a BF16 base and verify a sample inference works. This is the actual scoring deployment path; most likely silent-break point. Log result in `FRICTION.md` if it fails, even if the run otherwise produced a METRIC.
+
+**Regression bar:** post-T1 SFT-only METRIC ≥ pre-T1 SFT-only METRIC before Tier 2 starts. Tier 1 should be neutral or positive; if negative, identify which of T1.1–T1.4 caused it before adding more variables.
+
 ## Tips
 - The reward functions are the most powerful lever — GRPO learns whatever the rewards incentivize
 - Correctness reward dominates; other rewards are auxiliary signals
@@ -179,9 +270,14 @@ This branch uses NVFP4 quantization on Blackwell GPUs (RTX PRO 6000):
 
 - **Base model ~17GB** instead of ~60GB in bf16 → more VRAM for training
 - **FPQuantLinear `__bases__` hack** is required — PEFT doesn't support FPQuantLinear natively. The hack is applied AFTER model loading in main(). Do NOT remove it.
+  - *Verified 2026-05-02:* no `dispatch_fp_quant` exists in PEFT ≤ 0.19.1; the hack works because PEFT falls through to its generic `nn.Linear` handler. T3.5 plans a clean `custom_module_mapping` replacement (not yet implemented). See `nemotron-vault/wiki/nvfp4-fine-tuning.md § Upstream status`.
+- **`forward_method='quest'`** should be set in `FPQuantConfig` (T1.1) — `abs_max` is PTQ-tuned; `quest` is QAT-tuned per HF FP-Quant docs.
 - **`LORA_DROPOUT = 0.0`** is required — FPQuantLinear with PEFT doesn't support dropout
 - **`device_map={'': 0}`** is required — FPQuantConfig doesn't support CPU offload
-- **Synthetic data** (3000 samples) provides perfect CoT for all 6 categories, compensating for weak dynamic CoT on real data
-- **Cosine reward** replaces binary correctness — prevents zero-gradient when all completions are correct
-- **`ground_truth`** column name in GRPO dataset (not `answer`) to avoid TRL conflicts
+- **Mamba fast-path patch** must be a robust import-then-disable (T1.2) — the `sys.modules.items()` loop is fragile and can silently no-op
+- **Gradient checkpointing** is enabled via `SFTConfig(gradient_checkpointing=True)` only (T1.4) — do not also call `model.gradient_checkpointing_enable()`. Keep `model.enable_input_require_grads()` — that's separate and required.
+- **Synthetic data** (currently 3000 samples = 71% of mix) provides perfect CoT for all 6 categories. T2.2 plans to sweep this ratio down to ~50% based on synthetic-data-diversity research.
+- **Cosine reward** replaces binary correctness — prevents zero-gradient when all completions are correct (relevant only when `SKIP_GRPO=False`)
+- **`ground_truth`** column name in GRPO dataset (not `answer`) to avoid TRL conflicts (kept for compatibility even though SFT-only mode doesn't use it)
 - If NVFP4 fails, set `USE_NVFP4 = False` to fall back to bf16
+- **`requirements.txt` must be version-pinned** (T1.3) — patches above break on minor version bumps of `transformers` / `peft` / `fp_quant` / `qutlass`
