@@ -69,7 +69,7 @@ GRPO_NUM_GENERATIONS = 4
 GRPO_MAX_COMPLETION = 1024
 GRPO_TEMPERATURE = 0.7
 GRPO_BETA = 0.0                  # No KL penalty → no reference model (~60GB saved)
-SKIP_GRPO = False                # Set True to skip GRPO (SFT-only fallback)
+SKIP_GRPO = True                 # Set True to skip GRPO (SFT-only fallback)
 
 # LoRA
 LORA_RANK = 32
@@ -675,6 +675,11 @@ def main():
             forward_dtype="nvfp4",
             backward_dtype="bf16",
             pseudoquantization=False,
+            # See FRICTION.md F-005: fp_quant 0.3.2 only implements backward
+            # for FPQuant4x16MasterFn (master weights kept). The no-master
+            # variant raises NotImplementedError on the first training step.
+            # Cost: BF16 master weights ~60 GB on top of NVFP4 ~17 GB = ~77 GB.
+            store_master_weights=True,
         )
         load_kwargs['dtype'] = torch.bfloat16
         print('Loading in NVFP4 (Blackwell FP-Quant)...')
@@ -719,6 +724,11 @@ def main():
         task_type=TaskType.CAUSAL_LM,
     )
     model = get_peft_model(model, lora_config)
+    # See FRICTION.md F-003: peft.get_peft_model doesn't set this flag, so
+    # transformers.validate_quantization_for_training thinks the model is a
+    # raw FPQuant base and raises. Setting it manually mirrors what
+    # PreTrainedModel.load_adapter() would have done.
+    model._hf_peft_config_loaded = True
     model.print_trainable_parameters()
 
     if torch.cuda.is_available():

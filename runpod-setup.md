@@ -47,20 +47,63 @@ cp /workspace/train.csv data/
 python -m venv .venv
 source .venv/bin/activate
 pip install -U pip
-
-# Pinned dependencies (see Part 3 if requirements.txt isn't pinned yet — T1.3)
-pip install -r requirements.txt
-
-# NVFP4 kernels — kept out of requirements.txt because they only build on Blackwell
-pip install fp_quant qutlass --no-build-isolation
 ```
+
+The remaining install must be **staged** — a single `pip install -r requirements.txt` will not succeed on a fresh Blackwell pod. Two reasons, both verified 2026-05-02:
+
+1. `mamba_ssm` and `causal_conv1d` are source builds that `import torch` in their `setup.py`. Under PEP 517 build isolation (pip's default) they re-download torch into a throwaway temp venv just to compile, so the install is both very slow and very fragile. They need `--no-build-isolation` exactly like `fp_quant`/`qutlass`.
+2. From plain PyPI on RunPod EU pods, the torch wheels download at ~50 KB/s (sustained ~30 min for 25 % of a single 530 MB wheel — see `build.log`). The PyTorch CDN is roughly 700× faster on the same network.
+
+Use this sequence:
+
+```bash
+# Step 1 — torch first, from the PyTorch CDN's cu128 channel
+#   The cu128 channel pins CUDA 12.8 user-space libs, which is what
+#   fp_quant / qutlass kernels expect. Drivers ≥ 580 also support cu130
+#   wheels, but cu128 is the stable channel as of 2026-05-02.
+pip install 'torch>=2.7.0' --index-url https://download.pytorch.org/whl/cu128
+
+# Step 2 — build helpers (ninja in particular; without it the source
+#   builds in step 3 either fail with "ninja: command not found" or
+#   fall back to slow serial nvcc compilation)
+pip install ninja packaging wheel setuptools
+
+# Step 3 — source-built CUDA packages, in one no-isolation call
+#   TORCH_CUDA_ARCH_LIST forces the kernels to target sm_120 (Blackwell)
+#   plus PTX for forward-compat. mamba_ssm and causal_conv1d compile
+#   from source (~5–10 min each); fp_quant comes as a pre-built wheel.
+export TORCH_CUDA_ARCH_LIST="12.0+PTX"
+pip install mamba_ssm causal_conv1d fp_quant qutlass --no-build-isolation
+
+# Step 3b — replace the qutlass stub with the real QuTLASS
+#   `qutlass` on PyPI is a placeholder package (version 0.0.0, summary
+#   "Temp", empty __init__.py). The real CUTLASS-based NVFP4 kernels
+#   are at github.com/IST-DASLab/QuTLASS. The PyPI stub satisfies
+#   `import qutlass` but raises `ValueError("QuTLASS is not installed")`
+#   from `fp_quant/module/linear.py` at the first FPQuantLinear init —
+#   i.e., during model load in `train.py`, not during pip install.
+pip uninstall qutlass -y
+pip install 'git+https://github.com/IST-DASLab/QuTLASS.git' --no-build-isolation
+
+# Step 4 — the rest of requirements.txt
+#   Most of `transformers`, `huggingface_hub`, `tokenizers`, `scipy`,
+#   `numpy`, `safetensors`, etc. are already satisfied as transitive deps
+#   of mamba_ssm. Step 4 only newly installs accelerate, peft, trl,
+#   datasets, sentencepiece, bitsandbytes, wandb, polars and their deps.
+pip install -r requirements.txt
+```
+
+Total wall time on a fresh RunPod EU Blackwell pod: ~50 minutes. Step 3 is the longest phase (~25 min — mostly nvcc kernel compilation, not network). See `build.log` for a step-by-step timing breakdown if anything regresses.
 
 ## 3. Authenticate to Hugging Face and W&B
 
 ```bash
-huggingface-cli login   # paste HF token — needed to download Nemotron weights
-wandb login             # paste W&B key, OR skip and run with WANDB_MODE=disabled
+# transformers 5.x deprecates `huggingface-cli`; use `hf` instead
+hf auth login --token "$HF_TOKEN"   # token saved to /workspace/.cache/huggingface/token
+wandb login "$WANDB_API_KEY"        # key saved to /root/.netrc
 ```
+
+If you don't have `$HF_TOKEN` / `$WANDB_API_KEY` exported in the pod's env yet, paste the actual token in place of the variable. `hf auth login` (no `--token`) also supports interactive paste.
 
 If you don't want W&B for the first run:
 ```bash
@@ -88,7 +131,7 @@ Decision tree for the transformers check:
 |---|---|
 | `transformers=5.x.y` + `uses dtype` | OK — current `train.py:679` matches |
 | `transformers=4.x.y` + `uses torch_dtype` | The version pin is being violated. Reinstall via the pinned `requirements.txt`, do **not** rename the kwarg in `train.py` |
-| `NEITHER` | Investigate — likely a broken install. Stop and add a `FRICTION.md` entry |
+| `NEITHER` | On `transformers=5.7.0+` this is **expected** — the signature is now `(model_args, **kwargs)` and `dtype` is consumed via `kwargs.pop("dtype")` inside `PreTrainedModel.from_pretrained` (~line 252 of `modeling_utils.py`). Confirm by running: `python -c "import transformers, inspect; print('OK' if 'kwargs.pop(\"dtype\"' in inspect.getsource(transformers.PreTrainedModel.from_pretrained) else 'BROKEN')"` — if it prints `OK`, the install is fine and `train.py:679` works as written. If it prints `BROKEN`, the install really is broken; stop and add a FRICTION entry. The original signature-based check above does not survive the transformers 5.x refactor; see F-001 in `FRICTION.md` for context. |
 
 > If `check_install.py` warns about `transformers != 4.51.3`, that warning is **stale** — see Part 3.
 

@@ -34,7 +34,8 @@ python -c "import transformers, inspect; sig = inspect.signature(transformers.Au
 |---|---|
 | `transformers=5.x.y` + `uses dtype` | Current code is correct. No change. Record the verification output in `STATUS.md`. |
 | `transformers=4.x.y` + `uses torch_dtype` | The version pin in `requirements.txt` is being violated. **Fix the pin first** (this is part of T1.3) — don't rename the kwarg in `train.py`. |
-| `NEITHER` | Investigate — possibly the install is broken. Halt before T1 and add a `FRICTION.md` entry. |
+| `transformers=5.7.0+` + `NEITHER` | **Expected on 5.7.0+** — the signature is now `(model_args, **kwargs)` and both `dtype` / `torch_dtype` are extracted via `kwargs.pop()` inside `PreTrainedModel.from_pretrained` (~line 252 of `modeling_utils.py`). The static-signature check is too narrow for this version. To confirm the kwarg is still wired: `python -c "import transformers, inspect; print('OK' if 'kwargs.pop(\"dtype\"' in inspect.getsource(transformers.PreTrainedModel.from_pretrained) else 'BROKEN')"` — if `OK`, current `train.py:679` works as written; proceed. If `BROKEN`, stop and add a FRICTION entry. (See F-001.) |
+| `NEITHER` on a non-5.7.0+ version | Investigate — possibly the install is broken. Halt before T1 and add a `FRICTION.md` entry. |
 
 If verification confirms the env matches the pin, proceed to Tier 1. If it diverges, fix the env via T1.3 first, then re-verify.
 
@@ -281,3 +282,4 @@ This branch uses NVFP4 quantization on Blackwell GPUs (RTX PRO 6000):
 - **`ground_truth`** column name in GRPO dataset (not `answer`) to avoid TRL conflicts (kept for compatibility even though SFT-only mode doesn't use it)
 - If NVFP4 fails, set `USE_NVFP4 = False` to fall back to bf16
 - **`requirements.txt` must be version-pinned** (T1.3) — patches above break on minor version bumps of `transformers` / `peft` / `fp_quant` / `qutlass`
+- **`qutlass` cannot come from PyPI.** The PyPI name is squatted by an empty stub (version 0.0.0, summary "Temp"). The real CUTLASS-based NVFP4 kernels live at `github.com/IST-DASLab/QuTLASS` and must be installed via `pip install 'git+https://github.com/IST-DASLab/QuTLASS.git' --no-build-isolation`. T1.3 should pin `qutlass @ git+https://github.com/IST-DASLab/QuTLASS.git@<sha>` rather than just `qutlass`. See F-002 for the failure signature when the stub is in place.
