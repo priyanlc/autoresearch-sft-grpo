@@ -72,10 +72,12 @@ WARMUP_RATIO = 0.1
 MAX_GRAD_NORM = 1.0
 
 # Evaluation
+# See FRICTION.md F-005: 128 truncates answers before \boxed{} closes; 256 still cuts off some.
 EVAL_MAX_NEW_TOKENS = 512         # Need enough for thinking + boxed answer
 EVAL_BATCH_SIZE = 1               # Reduced to avoid OOM on A100 80GB
 
 # SFT CoT (chain-of-thought)
+# See FRICTION.md F-004: USE_COT=False yields no \boxed{} (METRIC 0.1667). Locked True on main.
 USE_COT = True                    # Teach thinking pattern that eval uses
                                   # Note: with USE_COT=True (50 samples/type), model parroted templates verbatim
                                   # instead of reasoning. Inconclusive if harmful — may improve with more data.
@@ -373,6 +375,7 @@ def main():
 
     # Load model
     print(f'Loading model: {MODEL_ID}')
+    # See FRICTION.md F-003: 4-bit quantization degrades METRIC 0.5333 -> 0.1333. BF16 locked on main.
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
         device_map='auto',
@@ -503,6 +506,8 @@ def main():
     est_steps = len(grpo_dataset) // (BATCH_SIZE * GRAD_ACCUM)
     print(f'GRPO: {len(grpo_dataset)} prompts, {GRPO_NUM_GENERATIONS} gens/prompt, ~{est_steps} steps')
 
+    # See FRICTION.md F-002: GRPO TRL tensor mismatch on Mamba/MoE — punted to SFT-only.
+    # The try/except is the standing smoke harness; SFT adapter is preserved on crash.
     try:
         grpo_trainer.train()
         grpo_trainer.model.save_pretrained(OUTPUT_DIR)
@@ -527,6 +532,7 @@ def main():
     torch.cuda.empty_cache()
 
     # ---- Evaluate ----
+    # See FRICTION.md F-001: Nemotron HybridMambaAttentionDynamicCache bugs (conv_dim, conv_kernel_size, .device).
     model.config.use_cache = False  # Nemotron cache has bugs; disable for safety
     print('\nEvaluating...')
     overall, by_type = evaluate_model(
