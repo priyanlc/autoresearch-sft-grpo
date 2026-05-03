@@ -711,6 +711,27 @@ def main():
         target_modules = [name for name, mod in model.named_modules()
                           if isinstance(mod, FPQuantLinear)]
         print(f'LoRA targeting {len(target_modules)} FPQuantLinear modules')
+
+        # See FRICTION.md F-006: with store_master_weights=True (F-005 fix),
+        # fp_quant's pre_forward sets qweight=None (and scales=None,
+        # dqweight=None) because forward uses self.weight directly in master
+        # mode. PEFT's _replace_module then does:
+        #     if hasattr(child, 'qweight'):
+        #         weight = child.qweight   # picks up None
+        #     ...
+        #     module.to(weight.device)     # crashes: AttributeError on None
+        # `hasattr` returns True for an attribute that exists-but-is-None,
+        # so PEFT never falls through to child.weight. Stripping the
+        # attributes makes hasattr return False and PEFT picks up
+        # child.weight (a real Parameter in master mode).
+        _stripped = 0
+        for _n, _m in model.named_modules():
+            if isinstance(_m, FPQuantLinear):
+                for _attr in ('qweight', 'scales', 'dqweight'):
+                    if hasattr(_m, _attr) and getattr(_m, _attr) is None:
+                        delattr(_m, _attr)
+                        _stripped += 1
+        print(f'Stripped {_stripped} None-valued qweight/scales/dqweight (F-006 workaround)')
     else:
         target_modules = 'all-linear'
 

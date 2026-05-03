@@ -39,18 +39,30 @@ python -c "import transformers, inspect; sig = inspect.signature(transformers.Au
 
 If verification confirms the env matches the pin, proceed to Tier 1. If it diverges, fix the env via T1.3 first, then re-verify.
 
+**Additional pre-flight checks (added 2026-05-02 from FRICTION findings):**
+
+```bash
+# (C-1) Confirm QuTLASS is the real package, not the PyPI v0.0.0 stub (F-002)
+python -c "from fp_quant.module.qutlass_ops import HAS_QUTLASS; assert HAS_QUTLASS, 'QuTLASS stub installed; reinstall from github.com/IST-DASLab/QuTLASS'; print('QuTLASS OK')"
+
+# (C-2) Source-string check for transformers 5.7.0+ (F-001)
+python -c "import transformers, inspect; print('OK' if 'kwargs.pop(\"dtype\"' in inspect.getsource(transformers.PreTrainedModel.from_pretrained) else 'BROKEN — dtype kwarg not wired')"
+```
+
+If either check fails, **STOP** before any T1 work and add a `FRICTION.md` entry. Both have caused silent failures on this branch.
+
 ### Tier 1 changes — apply before any sweeping
 
 These are one-time correctness/cleanup improvements derived from the latest NVFP4 research. Each lands as its own commit with a `T1.x:` prefix in the commit message.
 
 | ID | Change | Status |
 |---|---|---|
-| T1.1 | Add `forward_method='quest'` to `FPQuantConfig(...)` (`abs_max` is PTQ-tuned; `quest` is QAT-tuned per HF FP-Quant docs) | TODO — agent applies |
+| ~~T1.1~~ | ~~Add `forward_method='quest'` to `FPQuantConfig(...)`~~ | **DEFERRED 2026-05-02** — research (see `wiki/02-nvfp4-lora-tutorial.md` Step 5) showed `quest` is QAT-specific (`pseudoquantization=True` required). Our case is LoRA on frozen base, not QAT. The kwarg may not even exist in current `fp_quant` 0.3.2. Defaults are correct — do **NOT** apply this change. |
 | T1.2 | Replace `for name, mod in sys.modules.items():` Mamba fast-path patch with explicit `import` of the `modeling_nemotron_h` module, then set `is_fast_path_available = False` on it directly | TODO — agent applies |
-| T1.3 | Pin all package versions in `requirements.txt` to current working set (`pip freeze` snapshot) | TODO — agent applies |
+| T1.3 | Pin all package versions in `requirements.txt` to current working set (`pip freeze` snapshot). See `build.log` for the verified-working version set as of 2026-05-02. | TODO — agent applies |
 | T1.4 | Remove duplicate `model.gradient_checkpointing_enable()` call (`SFTConfig(gradient_checkpointing=True)` already covers it). Keep `enable_input_require_grads()` — that's not redundant. | TODO — agent applies |
 
-After T1.1–T1.4 each pass, run end-to-end with `SKIP_GRPO=True` and confirm METRIC ≥ pre-T1 baseline. T1.1 should be applied and validated *first*, alone, before stacking T1.2–T1.4 — it's the change with the most uncertainty about whether it helps the LoRA-on-frozen-NVFP4 case.
+After T1.2–T1.4 each pass, run end-to-end with `SKIP_GRPO=True` and confirm METRIC ≥ pre-T1 baseline. (T1.1 is deferred per the rationale above.)
 
 ### Goal
 Maximize **validation accuracy** on 6 types of "Alice's Wonderland" reasoning puzzles via SFT-only training:
@@ -136,6 +148,7 @@ These are research bets requiring multi-run setup. The agent may only add the *f
 - LoRA rank must be <= 32 (competition rule)
 - The model must output answers in `\boxed{}` format
 - No per-experiment wall-clock cap — let runs complete on their own terms
+- **VRAM ceiling: peak ~91 GB / available 95 GB** — with `store_master_weights=True` (F-005 patch), the recipe sits ~4 GB from OOM at model load. Do **NOT** increase `BATCH_SIZE`, `GRAD_ACCUM`, or `SFT_MAX_SEQ_LEN` without explicit human approval. Routine "let's try batch=4" sweeps will OOM mid-experiment.
 - Do not modify `prepare.py`
 - SFT and GRPO data should not overlap with validation (handled automatically)
 - Keep `SKIP_GRPO=True` for all Tier 1 / Tier 2 work; do not toggle to test GRPO unless explicitly running the co-existence smoke test (see Branch Hygiene)
@@ -220,6 +233,13 @@ When a non-trivial failure occurs (anything that requires more than a one-line c
 
 Friction entries are **the most valuable artifact for the follow-up blog post**. Be specific about what was actually tried, even when nothing worked — *especially* when nothing worked. "I tried X, Y, Z and none of them moved it" is publishable; "GRPO didn't work" is not.
 
+**FRICTION conventions (added 2026-05-02):**
+
+- **Read FRICTION.md before applying patches.** F-001 through F-006 already document the failure modes that the current `train.py` patches defend against (see "Patches in `train.py` — DO NOT REMOVE" above). If you find yourself reaching for a workaround that "feels familiar," check whether it's already in FRICTION first.
+- **Sequential IDs only** — next entry is `F-007`, then `F-008`, etc. Don't re-use IDs even if a prior issue was later resolved.
+- **Cross-reference F-IDs everywhere.** Commit messages: `fix: F-007 PEFT crash on adapter merge`. STATUS.md blocks: `Blockers: F-007, F-008`. `train.py` inline comments: `# See FRICTION.md F-006: ...`. Three-way linkage (code ↔ commits ↔ STATUS) is what makes the run-log reconstructible months later.
+- **Open ≠ stuck.** A FRICTION entry can be `final state: open` while you proceed past it with a workaround. The point is to capture what you learned, not to gate progress on a clean resolution.
+
 ### 4. End-of-session summary
 
 Before the loop terminates (out of time, out of disk, or human-stopped), prepend a final block to `STATUS.md` titled `### Session Summary YYYY-MM-DD`:
@@ -267,19 +287,39 @@ Plus, **once per Tier transition** (not every run, too expensive):
 
 ## NVFP4 Branch Notes
 
-This branch uses NVFP4 quantization on Blackwell GPUs (RTX PRO 6000):
+This branch uses NVFP4 quantization on Blackwell GPUs (RTX PRO 6000, 96 GB):
 
-- **Base model ~17GB** instead of ~60GB in bf16 → more VRAM for training
-- **FPQuantLinear `__bases__` hack** is required — PEFT doesn't support FPQuantLinear natively. The hack is applied AFTER model loading in main(). Do NOT remove it.
-  - *Verified 2026-05-02:* no `dispatch_fp_quant` exists in PEFT ≤ 0.19.1; the hack works because PEFT falls through to its generic `nn.Linear` handler. T3.5 plans a clean `custom_module_mapping` replacement (not yet implemented). See `nemotron-vault/wiki/nvfp4-fine-tuning.md § Upstream status`.
-- **`forward_method='quest'`** should be set in `FPQuantConfig` (T1.1) — `abs_max` is PTQ-tuned; `quest` is QAT-tuned per HF FP-Quant docs.
+- **Base model ~17GB** quantized weights, **plus ~60GB BF16 master weights** kept by fp_quant for backward (F-005). Training-time peak is ~91 GB — *not* the inference-only ~17 GB.
 - **`LORA_DROPOUT = 0.0`** is required — FPQuantLinear with PEFT doesn't support dropout
 - **`device_map={'': 0}`** is required — FPQuantConfig doesn't support CPU offload
-- **Mamba fast-path patch** must be a robust import-then-disable (T1.2) — the `sys.modules.items()` loop is fragile and can silently no-op
-- **Gradient checkpointing** is enabled via `SFTConfig(gradient_checkpointing=True)` only (T1.4) — do not also call `model.gradient_checkpointing_enable()`. Keep `model.enable_input_require_grads()` — that's separate and required.
 - **Synthetic data** (currently 3000 samples = 71% of mix) provides perfect CoT for all 6 categories. T2.2 plans to sweep this ratio down to ~50% based on synthetic-data-diversity research.
 - **Cosine reward** replaces binary correctness — prevents zero-gradient when all completions are correct (relevant only when `SKIP_GRPO=False`)
 - **`ground_truth`** column name in GRPO dataset (not `answer`) to avoid TRL conflicts (kept for compatibility even though SFT-only mode doesn't use it)
 - If NVFP4 fails, set `USE_NVFP4 = False` to fall back to bf16
-- **`requirements.txt` must be version-pinned** (T1.3) — patches above break on minor version bumps of `transformers` / `peft` / `fp_quant` / `qutlass`
-- **`qutlass` cannot come from PyPI.** The PyPI name is squatted by an empty stub (version 0.0.0, summary "Temp"). The real CUTLASS-based NVFP4 kernels live at `github.com/IST-DASLab/QuTLASS` and must be installed via `pip install 'git+https://github.com/IST-DASLab/QuTLASS.git' --no-build-isolation`. T1.3 should pin `qutlass @ git+https://github.com/IST-DASLab/QuTLASS.git@<sha>` rather than just `qutlass`. See F-002 for the failure signature when the stub is in place.
+- **`requirements.txt` must be version-pinned** (T1.3) — patches in `train.py` break on minor version bumps of `transformers` / `peft` / `fp_quant` / `qutlass`
+- **`qutlass` cannot come from PyPI.** The PyPI name is squatted by an empty stub (version 0.0.0, summary "Temp"). The real CUTLASS-based NVFP4 kernels live at `github.com/IST-DASLab/QuTLASS` and must be installed via `pip install 'git+https://github.com/IST-DASLab/QuTLASS.git' --no-build-isolation`. T1.3 should pin `qutlass @ git+https://github.com/IST-DASLab/QuTLASS.git@<sha>` rather than just `qutlass`. See F-002.
+
+## Patches in `train.py` — DO NOT REMOVE
+
+The current `train.py` carries five patches that look unfamiliar but are each defending against a specific failure mode discovered through trial-and-error. **Do not "clean up" any of these without first reading the linked FRICTION entry.** Each one was added because removing it (or never adding it) crashes the run. They span the seam between four independently-released libraries (transformers 5.7.0, peft 0.19.1, fp_quant 0.3.2, qutlass 0.2.0).
+
+| Patch (location in `train.py`) | What it does | If removed | FRICTION |
+|---|---|---|---|
+| `FPQuantConfig(..., store_master_weights=True)` (~line 682) | Keeps BF16 master weights so fp_quant's backward has something to differentiate against | First training step crashes with `NotImplementedError: Backward pass is not implemented for FPQuant4x16NoMasterFn yet`. Cost: ~60 GB extra VRAM. | F-005 |
+| Mamba fast-path disable (~line 690): `for name, mod in sys.modules.items(): ... is_fast_path_available = False` | Forces Nemotron's Mamba layers off the C++ fast-path that doesn't cooperate with FPQuantLinear hooks | Loss is `nan` from step 1, or kernel-signature mismatch error | (predates FRICTION, now F-007 territory if it regresses) |
+| `gradient_checkpointing_enable()` + `enable_input_require_grads()` (~lines 696–697) | Both required: checkpointing alone leaves quantized inputs without `requires_grad` | `RuntimeError: element 0 of tensors does not require grad` on backward | (predates FRICTION) |
+| `FPQuantLinear.__bases__ = (nn.Linear, ...)` hack (~line 706) | Makes FPQuantLinear an `nn.Linear` subclass at runtime so PEFT's `isinstance` fallback catches it | `print_trainable_parameters()` reports 0 trainable params — silent disaster | Verified 2026-05-02: no `dispatch_fp_quant` in PEFT ≤ 0.19.1. See `wiki/nvfp4-fine-tuning.md § Upstream status`. |
+| **F-006 strip block** (~line 727): `del` of None-valued `qweight`/`scales`/`dqweight` on FPQuantLinear modules before `get_peft_model()` | Stops PEFT's `_replace_module` from picking up `qweight=None` and crashing on `None.device` | `AttributeError: 'NoneType' object has no attribute 'device'` in PEFT's `_replace_module` | F-006 |
+| `model._hf_peft_config_loaded = True` (~line 752) | Tells `transformers.validate_quantization_for_training` that a PEFT adapter is attached | `ValueError: ... QuantizationMethod.FPQUANT do not support training` at `SFTTrainer(...)` construction | F-003 |
+
+> **F-006 patch status (2026-05-02): UNVALIDATED.** It's a candidate fix derived from reading PEFT and fp_quant source. The first `train.py` run after this commit is essentially the validation. If the run reaches `print_trainable_parameters()` without crashing, F-006 is resolved. If it crashes elsewhere, **STOP**, log F-007, and report to the human — do not stack more workarounds on top.
+
+## Operational realities (RunPod-specific)
+
+These are pod-environment quirks discovered during the 2026-05-02 install pass. Knowing them prevents wasted pod hours and avoidable panics.
+
+- **First model load is ~22 minutes (cold)** on RunPod's `/workspace` MooseFS network volume — bandwidth-bound at ~33 MB/s, *not* a hung process. Don't kill the load. (F-004.)
+- **Subsequent loads in the same session are ~3 minutes** — OS page cache holds the recently-read shards. **Plan experiments to reuse the page cache**: run multiple Tier 2 variations within one pod session rather than spinning up a fresh pod per variation. The cold-load cost dominates per-experiment wall-clock if you don't.
+- **Optional speedup: `HF_HOME` redirect** to a local NVMe path if the pod has one (`df -h` to discover; `/tmp` and `/root` are sometimes local-disk-backed on RunPod templates). Set *before* `prepare.py` runs, otherwise `~/.cache/huggingface/` is already on MooseFS.
+- **Fresh-pod install is ~50 minutes** end-to-end per `build.log`. Do not add this cost to the per-experiment budget — it's a one-off.
+- **Page-cache invalidates on pod stop/restart** — the MooseFS data persists, but the Linux page cache does not. Restarting the pod resets the load cost back to 22 min.
