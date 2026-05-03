@@ -26,6 +26,24 @@ Block template (per program.md):
 End-of-session summary blocks go at the very top under the heading `### Session Summary YYYY-MM-DD`.
 -->
 
+### 2026-05-03 ~12:00 UTC — Methodology assimilation (T1.1..T1.8a) landed; T1.8b regression run pending pod
+
+- **Current best METRIC:** 0.5333 (per-category: bit_ops 60%, cipher 0%, gravity 20%, numeral 100%, symbol 40%, unit_conv 100%) — **carried over from c1bb0a6**, no new training run yet under the new methodology format.
+- **Experiments since last status:** 0 (this is a documentation-only landing; no `train.py` execution).
+- **What was tried:**
+  - T1.1: added `FRICTION.md` template + conventions (commit `c6350b9`).
+  - T1.2: added `BRANCH_NOTES.md` describing main as BF16 SFT-only anchor (`d097311`).
+  - T1.3: added `runpod-setup.md` three-part scaffold for BF16 main (`11d869a`).
+  - T1.4: restructured `program.md` to the 14-section methodology template (`0bc24e8`).
+  - T1.5: converted this STATUS.md to append-only ledger format (`c7c23f3`).
+  - T1.6: seeded `FRICTION.md` with F-001..F-006 from main history (`49d9c38`).
+  - T1.7: cross-referenced FRICTION ids in `train.py` — 5 comment-only edits (`1a44857`).
+  - T1.8a: marked Known Baselines as legacy (pre-T1) and prepended this heartbeat (this commit).
+  - Net effect: **neutral** on METRIC by construction (no logic change). All eight commits land in one session.
+- **Next:** T1.8b — run `python train.py` on a fresh A100 80GB pod, confirm METRIC ≥ 0.5333 against the post-T1.7 working tree, append a row to `results.tsv` with `description="post-T1 regression sanity (no train.py logic change)"`. Until then, the assimilation status is **documentation-complete, regression-pending**.
+- **Blockers:** none for T1.1..T1.8a. T1.8b is gated on RunPod availability, not on any technical issue.
+- **Notes:** All five `# See FRICTION.md F-NNN` cross-references in `train.py` resolve cleanly against the F-001..F-006 entries seeded in T1.6. Companion wiki docs at `nemotron-vault/wiki/04-autoresearch-methodology.md` (the methodology spec) and `nemotron-vault/wiki/05-autoresearch-main-assimilation-plan.md` (the narrative plan) describe the same workflow.
+
 ### Session Summary 2026-04-06 — BF16 SFT-only baseline at METRIC 0.5333
 
 - **Best METRIC achieved:** 0.5333 (per-category: bit_ops 60%, cipher 0%, gravity 20%, numeral 100%, symbol 40%, unit_conv 100%).

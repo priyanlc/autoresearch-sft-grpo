@@ -75,7 +75,9 @@ METRIC: 0.XXXX
 
 This is the proportion of correctly answered puzzles on a held-out validation set (30 samples, 5 per category). Higher is better. Maximum is 1.0.
 
-## Known Baselines
+## Known Baselines (legacy — pre-T1)
+
+The table below captures the pre-T1.1 state of `main` (commit `c1bb0a6`). T1.1..T1.7 made no `train.py` logic changes (T1.7 was comment-only), so the 0.5333 row is expected to reproduce post-T1; the post-T1 regression run lands as T1.8b on the next pod session.
 
 | Run | SFT samples | GRPO | USE_COT | Overall | bit_ops | cipher | gravity | numeral | symbol | unit_conv |
 |---|---|---|---|---|---|---|---|---|---|---|
