@@ -47,10 +47,26 @@ cp /workspace/train.csv data/
 python -m venv .venv
 source .venv/bin/activate
 pip install -U pip
+```
+
+`main`'s `requirements.txt` contains two source-built CUDA packages (`mamba_ssm` and `causal_conv1d`). They `import torch` in their `setup.py`, so under PEP 517 build isolation pip re-downloads torch into a throwaway temp venv just to compile — the install becomes both very slow (PyPI throughput on RunPod EU pods is ~50 KB/s vs ~36 MB/s on the PyTorch CDN) and very fragile ("ninja not found" or similar). Use this staged sequence instead of a bare `pip install -r requirements.txt`:
+
+```bash
+# Step 1 — torch first, from the PyTorch CDN
+pip install 'torch>=2.2.0' --index-url https://download.pytorch.org/whl/cu121
+
+# Step 2 — build helpers (ninja in particular — without it the source
+# builds in step 3 fall back to slow serial nvcc compilation or fail outright)
+pip install ninja packaging wheel setuptools
+
+# Step 3 — source-built CUDA packages, in one no-isolation call
+pip install mamba_ssm causal_conv1d --no-build-isolation
+
+# Step 4 — the rest of requirements.txt (transformers, peft, trl, etc.)
 pip install -r requirements.txt
 ```
 
-`main` carries no source-built CUDA packages (no `mamba_ssm`/`causal_conv1d`/`fp_quant`/`qutlass` in `requirements.txt`), so a single `pip install -r` is enough. If a future change ever pins source-built deps, look at `nvfp4-blackwell:runpod-setup.md` Part 1 § 2 for the staged install pattern (PyTorch CDN, build helpers, then `--no-build-isolation` source builds).
+For a richer worked example of the staged-install pattern (including failure modes captured live), see the `nvfp4-blackwell` branch's setup doc: `git show nvfp4-blackwell:runpod-setup.md` § Part 1 § 2, and `git show nvfp4-blackwell:build.log` for timing data.
 
 > **build.log:** On the first fresh-pod bootstrap of `main`, capture install attempts (including failures), throughput samples, and lessons in a new `build.log` per the methodology in [`nemotron-vault/wiki/04-autoresearch-methodology.md`](../../../nemotron-vault/wiki/04-autoresearch-methodology.md) § build.log. Skipped pre-emptively per the assimilation plan; written when actually needed.
 
@@ -101,7 +117,7 @@ This downloads ~60 GB of BF16 weights to `~/.cache/huggingface/`. First time onl
 
 ## 6. First smoke run (SFT-only with graceful GRPO fallback)
 
-The active mode on `main` is **SFT-only**. `train.py` always attempts GRPO inside a `try/except` block (around `train.py:506`) — when GRPO crashes with the known Mamba/MoE+TRL tensor mismatch (FRICTION F-002), the SFT adapter from Phase 1 is preserved and eval proceeds. This is by design, not a regression.
+The active mode on `main` is **SFT-only**. `train.py` always attempts GRPO inside a `try/except` block (around `train.py:511`) — when GRPO crashes with the known Mamba/MoE+TRL tensor mismatch (FRICTION F-002), the SFT adapter from Phase 1 is preserved and eval proceeds. This is by design, not a regression.
 
 ```bash
 python train.py
