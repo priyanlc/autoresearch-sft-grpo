@@ -1,104 +1,107 @@
 # Autoresearch SFT+GRPO — Nemotron Reasoning Challenge
 
-Autonomous SFT+GRPO optimization using the [autoresearch](https://github.com/karpathy/autoresearch) pattern.
+Karpathy-style [autoresearch](https://github.com/karpathy/autoresearch) loop applied to the [NVIDIA Nemotron Model Reasoning Challenge](https://www.kaggle.com/competitions/nvidia-nemotron-model-reasoning-challenge) on Kaggle. An autoresearch agent (e.g. Claude Code) reads `program.md`, edits `train.py`, runs `python train.py`, parses `METRIC: 0.XXXX` from stdout, commits or reverts, and repeats.
 
-Two-phase pipeline: SFT warmup teaches format/reasoning basics, then GRPO uses reward signals to improve accuracy.
+`main` is the **BF16 SFT-only** baseline at commit `c1bb0a6` (METRIC **0.5333**). GRPO is wrapped in a `try/except` that falls back to the SFT adapter when the known Mamba/MoE+TRL tensor mismatch fires — see `FRICTION.md` F-002. NVFP4 / FP8 / 4-bit experiments live on dedicated branches (e.g. `nvfp4-blackwell`), not here.
 
-## Setup (RunPod A100)
+## Quickstart
 
-```bash
-# 1. Clone this directory to your RunPod instance
-# 2. Copy train.csv into ./data/
-mkdir -p data
-cp /path/to/train.csv data/
-
-# 3. Install dependencies
-pip install torch transformers accelerate peft trl datasets polars mamba_ssm causal_conv1d sentencepiece
-
-# 4. Run one-time preparation
-python prepare.py
-
-# 5. Verify baseline works
-python train.py
-
-# 6. Initialize git (autoresearch uses git to track experiments)
-git init
-git add -A
-git commit -m "initial baseline"
-```
-
-## Setting up Claude Code on RunPod
+Detailed instructions are in [`runpod-setup.md`](runpod-setup.md). For the impatient on a fresh A100 80GB pod:
 
 ```bash
-# 1. Install Node.js (required for Claude Code)
-curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-apt-get install -y nodejs
+git clone https://github.com/priyanlc/autoresearch-sft-grpo.git
+cd autoresearch-sft-grpo
 
-# 2. Install Claude Code
-npm install -g @anthropic-ai/claude-code
+# Venv + staged install (mamba_ssm needs --no-build-isolation)
+python -m venv .venv && source .venv/bin/activate && pip install -U pip
+pip install 'torch>=2.2.0' --index-url https://download.pytorch.org/whl/cu121
+pip install ninja packaging wheel setuptools
+pip install mamba_ssm --no-build-isolation
+pip install -r requirements.txt
 
-# 3. Authenticate (this will open a browser or give you a link)
-claude login
+# Auth + pre-flight
+hf auth login --token "$HF_TOKEN"
+wandb login "$WANDB_API_KEY"   # or: export WANDB_MODE=disabled
+python check_install.py
 
-# 4. Navigate to this directory and start Claude Code
-cd /path/to/autoresearch-sft-grpo
-claude
-
-# 5. Inside Claude Code, tell it to iterate:
-#    "Read program.md and start optimizing. Run python train.py,
-#     check the METRIC, modify train.py to improve it, and repeat."
+# Run
+python prepare.py    # downloads ~60 GB BF16 weights, builds val_split.json (first run only)
+python train.py      # ~4–5 hours; emits "METRIC: 0.XXXX" at the end
 ```
 
-Alternatively, use any AI coding agent (Cursor, Aider, etc.) — the pattern is agent-agnostic.
-
-## Running with autoresearch
-
-```bash
-# Clone autoresearch
-git clone https://github.com/karpathy/autoresearch
-cd autoresearch
-
-# Point it at our directory (or copy our files into autoresearch structure)
-# The AI agent will:
-#   1. Read program.md for instructions
-#   2. Modify train.py
-#   3. Run: python train.py
-#   4. Parse METRIC: X.XXXX from output
-#   5. Keep or discard the change
-#   6. Repeat
-```
+The 9,500-puzzle `train.csv` and the 3-row `test.csv` preview ship with the repo under CC BY 4.0. See [`data/README.md`](data/README.md) for license and attribution details.
 
 ## File structure
 
 ```
 autoresearch-sft-grpo/
-├── program.md      # Instructions for the AI agent (what to optimize)
-├── prepare.py      # One-time setup + evaluation harness (READ-ONLY)
-├── train.py        # Training script (AI agent modifies this)
+├── README.md           # This file
+├── program.md          # Autoresearch agent contract (the operational instruction sheet)
+├── BRANCH_NOTES.md     # main's locked configuration + Tier 1 chronology
+├── FRICTION.md         # Structured failure log (F-001 through F-006 seeded)
+├── STATUS.md           # Append-only heartbeat log + session summaries
+├── runpod-setup.md     # Three-part pod onboarding (first-run / autoresearch / troubleshooting)
+├── results.tsv         # Per-experiment metric ledger (one row per train.py invocation)
+├── requirements.txt    # Pip dependencies (mamba_ssm; causal_conv1d commented out per F-001)
+├── check_install.py    # Pre-flight: deps + GPU + data + version checks
+├── prepare.py          # One-time setup + evaluation harness (READ-ONLY)
+├── train.py            # Training script (autoresearch agent modifies this)
+├── eval_only.py        # Standalone eval of a saved adapter (utility)
+├── .gitignore
 ├── data/
-│   ├── train.csv   # Competition training data (you provide)
-│   └── val_split.json  # Fixed validation split (created by prepare.py)
-└── adapter/        # Output LoRA adapter (created by train.py)
+│   ├── README.md       # Provenance + CC BY 4.0 attribution
+│   ├── train.csv       # 9,500 puzzles with ground-truth answers
+│   └── test.csv        # 3-row preview (real test set is hidden at scoring)
+├── docs/
+│   ├── methodology.md          # 8-artefact autoresearch methodology
+│   ├── bf16-sft-only-plan.md   # Strategic plan that anchors main's configuration
+│   └── fast-path-and-cache.md  # F-001 deep dive: why train.py carries two redundant defenses
+└── adapter/            # Output LoRA adapter (created by train.py; gitignored)
 ```
 
-## Manual iteration
+## Documentation map
 
-You can also iterate manually without autoresearch:
+Read these in order, depending on what you need:
 
-```bash
-# Edit train.py (change config, rewards, prompt format, etc.)
-python train.py
-# Check METRIC at the end of output
-# If improved, git commit. If not, git checkout train.py
-```
+- [`program.md`](program.md) — start here if you're operating the autoresearch loop. The agent contract: goal, metric, what to modify, Tier 1/2/3 sequencing, logging contract.
+- [`runpod-setup.md`](runpod-setup.md) — start here if you're bootstrapping a fresh pod. Includes the autonomous Claude Code handoff in Part 2.
+- [`BRANCH_NOTES.md`](BRANCH_NOTES.md) — the locked configuration table. What `main` is and why. Read before any training-config change.
+- [`FRICTION.md`](FRICTION.md) — read **before** applying any patch that "feels familiar." F-001..F-006 capture the cache, GRPO, 4-bit, USE_COT, EVAL_MAX_NEW_TOKENS, and `.git/index` lock failures already worked through.
+- [`STATUS.md`](STATUS.md) — append-only run log. Session summaries at the top; heartbeats below.
+- [`results.tsv`](results.tsv) — every experiment, including failures. Schema in `program.md` § Logging & Reporting.
+- [`docs/methodology.md`](docs/methodology.md) — the 8-artefact methodology that frames the loop.
+- [`docs/bf16-sft-only-plan.md`](docs/bf16-sft-only-plan.md) — the strategic plan that anchors `main` (what's locked, what's parameterizable, what's punted).
+- [`docs/fast-path-and-cache.md`](docs/fast-path-and-cache.md) — technical deep-dive on F-001 (why `train.py:386` and `train.py:536` are both needed, what changes when F-001 resolves upstream).
+- [`data/README.md`](data/README.md) — CC BY 4.0 source, attribution, schema.
+
+## Setting up autonomous Claude Code
+
+`runpod-setup.md` Part 2 has the full procedure (non-root user creation, `--dangerously-skip-permissions` constraint, `IS_SANDBOX=1` advanced workaround for throwaway pods). The kickoff prompt for a fresh operator:
+
+> "Read `program.md`, `BRANCH_NOTES.md`, and `FRICTION.md` first. Then run `python train.py` once *unmodified* to land **T1.8b** — that captures the post-T1 regression baseline against the pre-T1 0.5333 number, appends a row to `results.tsv`, and prepends a heartbeat to `STATUS.md`. After T1.8b lands, begin Tier 2 sweeps: pick one axis from `program.md` § 'Tier 2 sweep targets', edit `train.py`, commit with a `T2.x:` prefix, run, append `results.tsv`, repeat. Honour the Tier 1 → Tier 2 sequencing — do not start Tier 2 until T1.8b is committed."
+
+Manual iteration without an autoresearch agent works the same way — edit `train.py`, run, capture METRIC, commit (or `git revert` on regression). The methodology's discipline (one commit per change ID, `T1.x:`/`T2.x:` prefixes, `results.tsv` per run, `FRICTION.md` for non-trivial failures) applies either way.
 
 ## Time per experiment
 
-On A100 80GB with default settings (300 SFT + 300 GRPO samples):
-- Model loading: ~2 min
-- SFT warmup: ~5 min
-- GRPO training: ~12 min
-- Evaluation: ~5 min
-- **Total: ~24 min per experiment**
+On A100 80GB with the locked configuration (1,200 SFT samples, GRPO graceful fallback, BF16, `EVAL_MAX_NEW_TOKENS=512`, no KV cache per F-001):
 
-For faster iteration, reduce `SFT_SAMPLES_PER_TYPE` and `GRPO_SAMPLES_PER_TYPE`, or reduce `GRPO_NUM_GENERATIONS` to 2.
+| Stage | Time |
+|---|---|
+| Cold model load (13 shards) | ~5 min |
+| SFT (1,200 samples, 1 epoch) | ~1 hour |
+| GRPO attempt → fast crash → SFT fallback | ~1 min |
+| Eval (30 samples, no KV cache) | **~3 hours** |
+| **Total per run** | **~4–5 hours** |
+
+Eval is the wall-clock-dominant phase because cache-disabled generation re-runs the full forward each step. KV cache rehabilitation (gated on F-001 resolving upstream) would cut eval to ~10 minutes — see `docs/fast-path-and-cache.md`.
+
+## License
+
+The data files (`data/train.csv`, `data/test.csv`) are released under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) per the [Kaggle competition](https://www.kaggle.com/competitions/nvidia-nemotron-model-reasoning-challenge) data terms. See [`data/README.md`](data/README.md) for attribution requirements.
+
+The code in this repo does not yet have an explicit license. **TODO:** add a `LICENSE` file (typically MIT or Apache-2.0 for code that consumes CC BY 4.0 data and produces LoRA adapters; pick one and add it before public reuse).
+
+## Attribution
+
+Built on the [autoresearch](https://github.com/karpathy/autoresearch) pattern by Andrej Karpathy. The 8-artefact methodology in [`docs/methodology.md`](docs/methodology.md) extends the bare loop with operational discipline (FRICTION ledger, append-only STATUS, `results.tsv` per run, T1/T2/T3 tiering, three-way commit↔code↔ledger cross-referencing) so a finished run produces article-grade artefacts and not a pile of unreproducible logs.
