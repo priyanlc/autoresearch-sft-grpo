@@ -67,11 +67,11 @@ pip install mamba_ssm --no-build-isolation
 pip install -r requirements.txt
 ```
 
-`causal_conv1d` is intentionally absent from this list — it is commented out in `requirements.txt` per T1.9 because the F-001 workaround in `train.py:386` force-disables the Mamba fast path that would otherwise consume it. With `causal_conv1d` not installed, `is_fast_path_available` evaluates to `False` automatically (same outcome as the train.py toggle, no runtime difference). When F-001 resolves upstream and the fast path is reactivated, `causal_conv1d` should be added back to `requirements.txt` and to the Step 3 install. See [`nemotron-vault/wiki/nemotron-fast-path-and-cache.md`](../../../nemotron-vault/wiki/nemotron-fast-path-and-cache.md) for the full mechanical treatment.
+`causal_conv1d` is intentionally absent from this list — it is commented out in `requirements.txt` per T1.9 because the F-001 workaround in `train.py:386` force-disables the Mamba fast path that would otherwise consume it. With `causal_conv1d` not installed, `is_fast_path_available` evaluates to `False` automatically (same outcome as the train.py toggle, no runtime difference). When F-001 resolves upstream and the fast path is reactivated, `causal_conv1d` should be added back to `requirements.txt` and to the Step 3 install. See [`docs/fast-path-and-cache.md`](docs/fast-path-and-cache.md) for the full mechanical treatment.
 
 For a richer worked example of the staged-install pattern (including failure modes captured live), see the `nvfp4-blackwell` branch's setup doc: `git show nvfp4-blackwell:runpod-setup.md` § Part 1 § 2, and `git show nvfp4-blackwell:build.log` for timing data.
 
-> **build.log:** On the first fresh-pod bootstrap of `main`, populate `./build.log` with install attempts (including failures), throughput samples, and lessons learned. The methodology in [`nemotron-vault/wiki/04-autoresearch-methodology.md`](../../../nemotron-vault/wiki/04-autoresearch-methodology.md) § build.log explains the pattern. The file is intentionally absent from the repo until then — write it when first needed, not pre-emptively.
+> **build.log:** On the first fresh-pod bootstrap of `main`, populate `./build.log` with install attempts (including failures), throughput samples, and lessons learned. The methodology in [`docs/methodology.md`](docs/methodology.md) § build.log explains the pattern. The file is intentionally absent from the repo until then — write it when first needed, not pre-emptively.
 
 ## 3. Authenticate to Hugging Face and W&B
 
@@ -287,7 +287,7 @@ rm -rf ~/.cache/huggingface/modules/transformers_modules/nvidia/NVIDIA-Nemotron-
 # rm -rf ~/.cache/huggingface/modules/transformers_modules/nvidia/NVIDIA_hyphen_Nemotron*
 ```
 
-This is also the path to clear when re-applying the in-place edits to `modeling_nemotron_h.py` for the F-001 cache fix — see `FRICTION.md` F-001 and [`nemotron-vault/wiki/nemotron-fast-path-and-cache.md`](../../../nemotron-vault/wiki/nemotron-fast-path-and-cache.md). Note: clearing the cache wipes those in-place edits; you'll need to re-apply them or re-derive them after the next `from_pretrained()`.
+This is also the path to clear when re-applying the in-place edits to `modeling_nemotron_h.py` for the F-001 cache fix — see `FRICTION.md` F-001 and [`docs/fast-path-and-cache.md`](docs/fast-path-and-cache.md). Note: clearing the cache wipes those in-place edits; you'll need to re-apply them or re-derive them after the next `from_pretrained()`.
 
 ## Reset between experiments
 

@@ -1,6 +1,6 @@
 # Autoresearch: SFT-only on `main` (BF16 baseline)
 
-> **Plan reference:** the strategic plan for this branch is [`nemotron-vault/wiki/bf16-sft-only-plan.md`](../../../nemotron-vault/wiki/bf16-sft-only-plan.md). When in doubt about *why* a change is being made, that file is the source of truth. This file (`program.md`) is the operational instruction sheet for the autoresearch agent.
+> **Plan reference:** the strategic plan for this branch is [`docs/bf16-sft-only-plan.md`](docs/bf16-sft-only-plan.md). When in doubt about *why* a change is being made, that file is the source of truth. This file (`program.md`) is the operational instruction sheet for the autoresearch agent. The 8-artefact methodology that frames everything else is [`docs/methodology.md`](docs/methodology.md).
 
 ## Active Mode (as of 2026-05-04): BF16 SFT-only on `main`
 
@@ -270,7 +270,7 @@ See [`BRANCH_NOTES.md`](BRANCH_NOTES.md) for the locked configuration table, har
 | `train.py:386` | Mamba fast-path disable: loops `sys.modules` for `modeling_nemotron_h` and sets `is_fast_path_available = False` | F-001. Forces pure-PyTorch math even where the fused CUDA kernels would otherwise run. Pairs with the `use_cache=False` patch below. |
 | `train.py:536` | `model.config.use_cache = False` before eval | F-001. Prevents generation from touching the broken `HybridMambaAttentionDynamicCache`. |
 
-These are **redundant defenses, not duplicates** — both are needed. The fast path won't even be selected if `use_cache=False`, but if `use_cache=True` is accidentally re-enabled somewhere downstream and the fast-path disable is removed, you'd hit F-001 from a different angle. See [`nemotron-vault/wiki/nemotron-fast-path-and-cache.md`](../../../nemotron-vault/wiki/nemotron-fast-path-and-cache.md) for the full mechanical treatment.
+These are **redundant defenses, not duplicates** — both are needed. The fast path won't even be selected if `use_cache=False`, but if `use_cache=True` is accidentally re-enabled somewhere downstream and the fast-path disable is removed, you'd hit F-001 from a different angle. See [`docs/fast-path-and-cache.md`](docs/fast-path-and-cache.md) for the full mechanical treatment.
 
 Inline `# See FRICTION.md F-NNN` comments are added in T1.7. The Patches table grows when (and only when) a future fix on `main` defends a specific FRICTION entry.
 

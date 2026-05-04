@@ -21,7 +21,7 @@ mamba_ssm
 # functions to None and `is_fast_path_available` evaluates to False
 # automatically — same outcome as the train.py toggle, no behaviour change.
 # Re-enable when F-001 resolves upstream and the fast path is reactivated.
-# See FRICTION.md F-001 and nemotron-vault/wiki/nemotron-fast-path-and-cache.md.
+# See FRICTION.md F-001 and docs/fast-path-and-cache.md.
 # causal_conv1d
 sentencepiece
 

@@ -42,7 +42,7 @@ End-of-session summary blocks go at the very top under the heading `### Session 
   - Net effect: **neutral** on METRIC by construction (no logic change). All eight commits land in one session.
 - **Next:** T1.8b — run `python train.py` on a fresh A100 80GB pod, confirm METRIC ≥ 0.5333 against the post-T1.7 working tree, append a row to `results.tsv` with `description="post-T1 regression sanity (no train.py logic change)"`. Until then, the assimilation status is **documentation-complete, regression-pending**.
 - **Blockers:** none for T1.1..T1.8a. T1.8b is gated on RunPod availability, not on any technical issue.
-- **Notes:** All five `# See FRICTION.md F-NNN` cross-references in `train.py` resolve cleanly against the F-001..F-006 entries seeded in T1.6. Companion wiki docs at `nemotron-vault/wiki/04-autoresearch-methodology.md` (the methodology spec) and `nemotron-vault/wiki/05-autoresearch-main-assimilation-plan.md` (the narrative plan) describe the same workflow.
+- **Notes:** All five `# See FRICTION.md F-NNN` cross-references in `train.py` resolve cleanly against the F-001..F-006 entries seeded in T1.6. The methodology spec is at `docs/methodology.md` (inlined as part of T1.13); the narrative assimilation plan that drove T1.1..T1.12 lives in the separate documentation vault outside this repo.
 
 ### Session Summary 2026-04-06 — BF16 SFT-only baseline at METRIC 0.5333
 

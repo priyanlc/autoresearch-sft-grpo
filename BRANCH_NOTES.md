@@ -3,7 +3,7 @@
 **Branch:** `main`
 **Parent:** none — this is the parent-of-branches reference.
 **Reference baseline:** METRIC 0.5333 at commit `c1bb0a6` ("SFT-only optimized: METRIC 0.5333 vs 0.5000 baseline").
-**Strategic plan:** [`nemotron-vault/wiki/bf16-sft-only-plan.md`](../../../nemotron-vault/wiki/bf16-sft-only-plan.md)
+**Strategic plan:** [`docs/bf16-sft-only-plan.md`](docs/bf16-sft-only-plan.md)
 
 ## Purpose
 
@@ -42,11 +42,13 @@
 1. **Mamba fast-path disable** (around `train.py:386`) — loops `sys.modules` for `modeling_nemotron_h` and sets `is_fast_path_available = False`. Forces pure-PyTorch math even where the fused CUDA kernels would otherwise run. **Defends F-001 in tandem with patch 2** — without this, an accidental `use_cache=True` downstream would re-trigger the cache bugs from a different angle.
 2. **`model.config.use_cache = False`** at `train.py:536` before eval — prevents generation from touching the broken `HybridMambaAttentionDynamicCache`. Defends F-001 directly.
 
-These are redundant defenses, not duplicates. See `nemotron-vault/wiki/nemotron-fast-path-and-cache.md` for the full mechanical treatment of why both are needed. Cross-references are added inline as `# See FRICTION.md F-NNN` comments in T1.7.
+These are redundant defenses, not duplicates. See [`docs/fast-path-and-cache.md`](docs/fast-path-and-cache.md) for the full mechanical treatment of why both are needed. Cross-references are added inline as `# See FRICTION.md F-NNN` comments in T1.7.
 
 ## Tier 1 chronology
 
-- **T1.1 .. T1.8a (2026-05-03)** — Methodology assimilation. Converted `main` from a working snapshot into the methodology-compliant 8-artefact set documented in [`04-autoresearch-methodology.md`](../../../nemotron-vault/wiki/04-autoresearch-methodology.md). No `train.py` logic changes during T1; T1.7 added inline F-id comments only. T1.8 (regression run on a real pod) deferred to T1.8b.
+- **T1.1 .. T1.8a (2026-05-03)** — Methodology assimilation. Converted `main` from a working snapshot into the methodology-compliant 8-artefact set documented in [`docs/methodology.md`](docs/methodology.md). No `train.py` logic changes during T1; T1.7 added inline F-id comments only. T1.8 (regression run on a real pod) deferred to T1.8b.
+- **T1.3a / T1.7a / T1.9 / T1.10 / T1.11 / T1.12 (2026-05-04)** — Doc-only correctness sweep across `runpod-setup.md`, `program.md`, `BRANCH_NOTES.md`, `FRICTION.md`, `requirements.txt`, `data/README.md`, `.gitignore`. Triggered by the post-T1.7 line-number drift, the discovery that `causal_conv1d` is currently inert, the data-attribution gap, and the staged-install over-engineering.
+- **T1.13 (2026-05-04)** — Inlined three documentation files (`docs/methodology.md`, `docs/bf16-sft-only-plan.md`, `docs/fast-path-and-cache.md`) into the repo so cross-references resolve when the repo is published standalone on GitHub. Vault and repo will drift; in-repo `docs/` is canonical going forward.
 
 ## Fallback
 
