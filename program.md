@@ -2,7 +2,7 @@
 
 > **Plan reference:** the strategic plan for this branch is [`nemotron-vault/wiki/bf16-sft-only-plan.md`](../../../nemotron-vault/wiki/bf16-sft-only-plan.md). When in doubt about *why* a change is being made, that file is the source of truth. This file (`program.md`) is the operational instruction sheet for the autoresearch agent.
 
-## Active Mode (as of 2026-05-03): BF16 SFT-only on `main`
+## Active Mode (as of 2026-05-04): BF16 SFT-only on `main`
 
 `main` is the parent-of-branches reference. The active mode is **SFT-only**, with GRPO wrapped in a `try/except` block (`train.py:511`) that gracefully falls back to the SFT adapter when the known Mamba/MoE+TRL tensor-mismatch crash fires (`FRICTION.md` F-002). Do not flip the GRPO path to mandatory; do not enable 4-bit/FP8/NVFP4 quantization on `main` — those are research bets that need their own branches (see `nvfp4-blackwell` for the NVFP4 worked example).
 
@@ -20,14 +20,17 @@ When the autoresearch agent is invoked, the following are already true. **Confir
 
 ### Pre-flight verification — run before any Tier 2 sweep
 
-Two checks. Run on the actual pod that will execute training; abort if either fails.
+Three checks. Run on the actual pod that will execute training; abort if any fails. C-1 is a smoke check (trivially passes on A100/H100 — present so a misconfigured pod fails fast); C-2 and C-3 are the load-bearing ones.
 
 ```bash
-# (C-1) BF16 supported
+# (C-1) BF16 supported (smoke check)
 python -c "import torch; print('OK' if torch.cuda.is_bf16_supported() else 'BF16 NOT SUPPORTED')"
 
 # (C-2) transformers pin matches check_install.py expectation
 python -c "import transformers; print(transformers.__version__)"
+
+# (C-3) Nemotron transformers_modules cache (touches F-001 surface)
+ls ~/.cache/huggingface/modules/transformers_modules/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16/ 2>/dev/null && echo "cache present" || echo "cache missing"
 ```
 
 **Decision tree:**
@@ -39,8 +42,10 @@ python -c "import transformers; print(transformers.__version__)"
 | C-1 | anything else (CUDA init error, etc.) | STOP and add a `FRICTION.md` entry |
 | C-2 | `4.51.3` | Matches the requirements pin and `check_install.py:83`. Proceed |
 | C-2 | any other version | The pin is being violated. Reinstall via `pip install -r requirements.txt`; do **not** rename or relax the kwarg in `train.py` |
+| C-3 | `cache present` followed by directory listing | OK — the model has been downloaded before. F-001's in-place `modeling_nemotron_h.py` edits (if applied this pod-life) should still be in place; verify via `grep "conv_kernel_size" ~/.cache/huggingface/modules/transformers_modules/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16/*/modeling_nemotron_h.py` if the run will use `use_cache=True` (it shouldn't on `main`) |
+| C-3 | `cache missing` | First run on this pod — `python prepare.py` must run before `python train.py` (will download ~60 GB; ~5 min cold load). Not an error |
 
-If C-1 or C-2 hits a "neither expected outcome" branch, **STOP and add a `FRICTION.md` entry** rather than guessing — the verification command can itself become stale (this is the lesson behind the original F-001 pattern on `nvfp4-blackwell`).
+If any check hits a "neither expected outcome" branch, **STOP and add a `FRICTION.md` entry** rather than guessing — the verification command can itself become stale (this is the lesson behind the original F-001 pattern on `nvfp4-blackwell`).
 
 ### Tier 1 changes — chronology
 
@@ -49,14 +54,18 @@ If C-1 or C-2 hits a "neither expected outcome" branch, **STOP and add a `FRICTI
 | T1.1 | Add `FRICTION.md` template + conventions | Landed 2026-05-03 |
 | T1.2 | Add `BRANCH_NOTES.md` describing main as BF16 SFT-only anchor | Landed 2026-05-03 |
 | T1.3 | Add `runpod-setup.md` three-part scaffold for BF16 main | Landed 2026-05-03 |
+| T1.3a | Fix critical bugs in `runpod-setup.md` Part 1 (source-built packages claim, stale line number) | Landed 2026-05-04 |
 | T1.4 | Restructure `program.md` to 14-section methodology template | Landed 2026-05-03 (this file) |
 | T1.5 | Convert `STATUS.md` to append-only ledger | Landed 2026-05-03 |
 | T1.6 | Seed `FRICTION.md` with F-001..F-006 from main history | Landed 2026-05-03 |
 | T1.7 | Cross-reference FRICTION ids in `train.py` | Landed 2026-05-03 |
+| T1.7a | Fix stale `train.py` line numbers across docs (12 citations) | Landed 2026-05-04 |
 | T1.8a | Mark legacy baselines + heartbeat noting T1.8b deferred | Landed 2026-05-03 |
 | T1.8b | Pod regression run + first heartbeat under new format | **PENDING** — requires A100 80GB; defer until next RunPod session |
+| T1.9 | Comment out `causal_conv1d` in `requirements.txt` (currently inert per F-001 workaround) | Landed 2026-05-04 |
+| T1.10 | Correctness sweep on `program.md` + `BRANCH_NOTES.md` (Patches table rationale, Tier 1 chronology, Validation Contract holdover, pre-flight expansion) | Landed 2026-05-04 (this commit) |
 
-T1.1..T1.7 made no `train.py` logic changes (T1.7 is comment-only). The regression risk for T1.8b is therefore near-zero, but full methodology compliance still requires it.
+T1.1..T1.7 made no `train.py` logic changes (T1.7 is comment-only). T1.3a/T1.7a/T1.9/T1.10 are all doc/config corrections that touch no `train.py` logic either. The regression risk for T1.8b is therefore near-zero, but full methodology compliance still requires it.
 
 ## Goal
 
@@ -221,7 +230,7 @@ This is the section the human reads first when returning to the loop.
 - **Commit message prefix.** Format: `T1.1: <one-line summary>` so `git log --oneline` matches the tier table.
 - **Revert, don't fix-forward, on regressions.** If a Tier 2 experiment hurts METRIC, `git revert` it rather than patching on top — keeps the experiment record honest.
 - **`BRANCH_NOTES.md` gets a per-tier section** so anyone reading the branch later sees the chronology and which T-IDs landed.
-- **Co-existence smoke test.** GRPO smoke run is expected to crash; that's F-002, not a regression. The standing `try/except` block at `train.py:511` is the smoke harness — every `python train.py` exercises it. No additional `SKIP_GRPO=False` invocation needed.
+- **Co-existence smoke test.** GRPO smoke run is expected to crash; that's F-002, not a regression. `main` has no `SKIP_GRPO` flag — the standing `try/except` block at `train.py:511` IS the smoke harness, and every `python train.py` exercises it for free.
 
 ## Validation Contract (every Tier transition)
 
@@ -229,7 +238,7 @@ Each run produces (already wired in `train.py`):
 
 1. **METRIC** — primary number, parsed by autoresearch loop
 2. **Per-category accuracy** — diagnoses where gains came from
-3. **Peak VRAM + tokens/sec** — for the LinkedIn article's benchmarks section
+3. **Peak VRAM + tokens/sec** — hardware reality for the eventual write-up's benchmarks section
 4. **W&B run URL** — recorded in `STATUS.md`
 
 Plus, **once per Tier transition** (not every run, too expensive):
@@ -254,12 +263,14 @@ See [`BRANCH_NOTES.md`](BRANCH_NOTES.md) for the locked configuration table, har
 
 ## Patches in `train.py` — DO NOT REMOVE
 
-`main` carries no FPQuant/PEFT patches (no NVFP4 stack on this branch). The two non-trivial workarounds in `train.py` are:
+`main` carries no FPQuant/PEFT patches (no NVFP4 stack on this branch). Two non-trivial workarounds in `train.py` together defend FRICTION F-001:
 
 | Location | Patch | Defends against |
 |---|---|---|
-| `train.py` ~L384 | Mamba fast-path disable (predates assimilation) | Mamba kernel selection issues on the BF16 base; harmless. |
-| `train.py:536` | `model.config.use_cache = False` before eval | FRICTION F-001 (`HybridMambaAttentionDynamicCache` bugs) |
+| `train.py:386` | Mamba fast-path disable: loops `sys.modules` for `modeling_nemotron_h` and sets `is_fast_path_available = False` | F-001. Forces pure-PyTorch math even where the fused CUDA kernels would otherwise run. Pairs with the `use_cache=False` patch below. |
+| `train.py:536` | `model.config.use_cache = False` before eval | F-001. Prevents generation from touching the broken `HybridMambaAttentionDynamicCache`. |
+
+These are **redundant defenses, not duplicates** — both are needed. The fast path won't even be selected if `use_cache=False`, but if `use_cache=True` is accidentally re-enabled somewhere downstream and the fast-path disable is removed, you'd hit F-001 from a different angle. See [`nemotron-vault/wiki/nemotron-fast-path-and-cache.md`](../../../nemotron-vault/wiki/nemotron-fast-path-and-cache.md) for the full mechanical treatment.
 
 Inline `# See FRICTION.md F-NNN` comments are added in T1.7. The Patches table grows when (and only when) a future fix on `main` defends a specific FRICTION entry.
 
