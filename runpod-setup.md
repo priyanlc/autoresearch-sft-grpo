@@ -34,10 +34,11 @@ git clone <your-fork-url> nemotron
 cd nemotron/notebooks/05-autoresearch/autoresearch-sft-grpo
 git checkout main
 
-mkdir -p data
-# Copy train.csv from wherever you keep it (Kaggle download, S3, scp, etc.)
-cp /workspace/train.csv data/
+# Confirm data ships with the repo (CC BY 4.0; see data/README.md)
+ls -la data/train.csv data/test.csv
 ```
+
+The `train.csv` (9,500 puzzles) and `test.csv` (3-row preview) are tracked in the repo and arrive with the clone — no separate download needed. License and provenance are documented in [`data/README.md`](data/README.md). If those files are missing for any reason (unusual fork state, sparse checkout), pull them from the [Kaggle competition page](https://www.kaggle.com/competitions/nvidia-nemotron-model-reasoning-challenge) and copy into `data/`.
 
 ## 2. Create venv and install Python deps
 
@@ -49,26 +50,28 @@ source .venv/bin/activate
 pip install -U pip
 ```
 
-`main`'s `requirements.txt` contains two source-built CUDA packages (`mamba_ssm` and `causal_conv1d`). They `import torch` in their `setup.py`, so under PEP 517 build isolation pip re-downloads torch into a throwaway temp venv just to compile — the install becomes both very slow (PyPI throughput on RunPod EU pods is ~50 KB/s vs ~36 MB/s on the PyTorch CDN) and very fragile ("ninja not found" or similar). Use this staged sequence instead of a bare `pip install -r requirements.txt`:
+`main`'s `requirements.txt` contains one source-built CUDA package (`mamba_ssm`). It `import torch`s in its `setup.py`, so under PEP 517 build isolation pip re-downloads torch into a throwaway temp venv just to compile — the install becomes both very slow (PyPI throughput on RunPod EU pods is ~50 KB/s vs ~36 MB/s on the PyTorch CDN) and very fragile ("ninja not found" or similar). Use this staged sequence instead of a bare `pip install -r requirements.txt`:
 
 ```bash
 # Step 1 — torch first, from the PyTorch CDN
 pip install 'torch>=2.2.0' --index-url https://download.pytorch.org/whl/cu121
 
 # Step 2 — build helpers (ninja in particular — without it the source
-# builds in step 3 fall back to slow serial nvcc compilation or fail outright)
+# build in step 3 falls back to slow serial nvcc compilation or fails outright)
 pip install ninja packaging wheel setuptools
 
-# Step 3 — source-built CUDA packages, in one no-isolation call
-pip install mamba_ssm causal_conv1d --no-build-isolation
+# Step 3 — source-built CUDA package, --no-build-isolation
+pip install mamba_ssm --no-build-isolation
 
 # Step 4 — the rest of requirements.txt (transformers, peft, trl, etc.)
 pip install -r requirements.txt
 ```
 
+`causal_conv1d` is intentionally absent from this list — it is commented out in `requirements.txt` per T1.9 because the F-001 workaround in `train.py:386` force-disables the Mamba fast path that would otherwise consume it. With `causal_conv1d` not installed, `is_fast_path_available` evaluates to `False` automatically (same outcome as the train.py toggle, no runtime difference). When F-001 resolves upstream and the fast path is reactivated, `causal_conv1d` should be added back to `requirements.txt` and to the Step 3 install. See [`nemotron-vault/wiki/nemotron-fast-path-and-cache.md`](../../../nemotron-vault/wiki/nemotron-fast-path-and-cache.md) for the full mechanical treatment.
+
 For a richer worked example of the staged-install pattern (including failure modes captured live), see the `nvfp4-blackwell` branch's setup doc: `git show nvfp4-blackwell:runpod-setup.md` § Part 1 § 2, and `git show nvfp4-blackwell:build.log` for timing data.
 
-> **build.log:** On the first fresh-pod bootstrap of `main`, capture install attempts (including failures), throughput samples, and lessons in a new `build.log` per the methodology in [`nemotron-vault/wiki/04-autoresearch-methodology.md`](../../../nemotron-vault/wiki/04-autoresearch-methodology.md) § build.log. Skipped pre-emptively per the assimilation plan; written when actually needed.
+> **build.log:** On the first fresh-pod bootstrap of `main`, populate `./build.log` with install attempts (including failures), throughput samples, and lessons learned. The methodology in [`nemotron-vault/wiki/04-autoresearch-methodology.md`](../../../nemotron-vault/wiki/04-autoresearch-methodology.md) § build.log explains the pattern. The file is intentionally absent from the repo until then — write it when first needed, not pre-emptively.
 
 ## 3. Authenticate to Hugging Face and W&B
 
@@ -86,26 +89,38 @@ export WANDB_MODE=disabled
 
 ## 4. Pre-flight verification
 
-Run all three checks; abort if any flags an issue.
+Four checks; abort if any flags an issue. C-1 is a smoke check (trivially passes on A100/H100); C-2/C-3/C-4 are load-bearing. This mirrors `program.md` § Pre-flight verification — the autoresearch agent runs the same C-1/C-2/C-3 set before any Tier 2 sweep, so passing here means passing there.
 
 ```bash
-# CUDA version (must be >= 12.1)
+# (C-1) CUDA version + BF16 support (smoke check)
 nvidia-smi | grep "CUDA Version"
+python -c "import torch; print('OK' if torch.cuda.is_bf16_supported() else 'BF16 NOT SUPPORTED')"
 
-# BF16 support
-python -c "import torch; print('BF16 supported' if torch.cuda.is_bf16_supported() else 'BF16 NOT SUPPORTED — investigate')"
+# (C-2) transformers pin matches check_install.py expectation (4.51.3)
+python -c "import transformers; print(transformers.__version__)"
 
-# Full dependency + GPU + data check
+# (C-3) Nemotron transformers_modules cache (touches F-001 surface)
+ls ~/.cache/huggingface/modules/transformers_modules/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16/ 2>/dev/null && echo "cache present" || echo "cache missing"
+
+# (C-4) Full dependency + GPU + data check
 python check_install.py
 ```
 
-Decision tree for the BF16 check:
+**Decision tree:**
 
-| Output | Action |
-|---|---|
-| `BF16 supported` | OK — proceed |
-| `BF16 NOT SUPPORTED — investigate` | The GPU doesn't support BF16 (rare on A100/H100; fail fast). STOP, add a FRICTION entry, and either pick a different pod or a different dtype |
-| `NEITHER` (anything else, e.g. CUDA not initialised) | The driver/CUDA install is broken. STOP and add a FRICTION entry rather than guessing |
+| Check | Output | Action |
+|---|---|---|
+| C-1 | CUDA ≥ 12.1 + `OK` | Proceed |
+| C-1 | `BF16 NOT SUPPORTED` | The GPU lacks BF16 (rare on A100/H100). STOP, add a FRICTION entry — switch hardware or branch off; do not switch dtype on `main` |
+| C-1 | anything else (CUDA init error, etc.) | STOP and add a FRICTION entry rather than guessing |
+| C-2 | `4.51.3` | Matches the pin and `check_install.py:83`. Proceed |
+| C-2 | any other version | The pin is being violated. Reinstall via `pip install -r requirements.txt`; do **not** rename or relax the kwarg in `train.py` |
+| C-3 | `cache present` followed by directory listing | OK — model has been downloaded before. F-001's in-place `modeling_nemotron_h.py` edits (if applied this pod-life) should still be in place |
+| C-3 | `cache missing` | First run on this pod — Step 5 (`prepare.py`) will download. Not an error |
+| C-4 | `All checks passed` | Proceed |
+| C-4 | any failure | Re-read the failure line; fix and re-run before Step 5 |
+
+If any check hits a "neither expected outcome" branch, **STOP and add a FRICTION entry** rather than guessing — the verification command itself can become stale (this is the lesson behind the original F-001 pattern on `nvfp4-blackwell`).
 
 ## 5. Prepare data and validation split
 
@@ -125,9 +140,9 @@ python train.py
 
 Watch for `METRIC: 0.XXXX` at the end. The pre-T1 baseline is **0.5333** at commit `c1bb0a6`. Capture your run's METRIC in `STATUS.md` before applying any Tier 2 changes (per `program.md`).
 
-## 7. (Optional) Adapter-on-BF16 sanity check
+## 7. Adapter-on-BF16 sanity check (required at every Tier transition)
 
-The submitted adapter gets loaded onto a BF16 base at scoring time, which is the same base used during training on `main`. Verify the load path works at least once:
+The submitted adapter gets loaded onto a BF16 base at scoring time, which is the same base used during training on `main`. The methodology's Validation Contract (`program.md` § Validation Contract, point 5) requires this check at every Tier transition — it is the most likely silent-break point in the deployment path. Run it at least once per fresh pod bootstrap, plus whenever a Tier 1 → Tier 2 transition lands:
 
 ```bash
 python -c "
@@ -182,16 +197,18 @@ npm install -g @anthropic-ai/claude-code
 claude login
 ```
 
-## Initialise git for experiment tracking
+## Confirm git state for experiment tracking
+
+After `git clone` in Part 1 § 1, the repo already has full history — no `git init` needed. Confirm the working tree is on `main` and clean before kicking off:
 
 ```bash
 cd /path/to/autoresearch-sft-grpo
-git init
-git add -A
-git commit -m "initial baseline (post-T0 setup)"
+git rev-parse --abbrev-ref HEAD   # expect: main
+git status --porcelain            # expect: empty
+git log --oneline -1              # capture the starting commit hash for the first results.tsv row
 ```
 
-The autoresearch loop uses `git rev-parse --short HEAD` for the `commit` column in `results.tsv`.
+The autoresearch loop uses `git rev-parse --short HEAD` for the `commit` column in `results.tsv` — this is why the working tree must be clean before each `python train.py` invocation, and why each experiment lands as its own commit before the next run.
 
 ## Run Claude Code
 
@@ -207,7 +224,7 @@ claude --dangerously-skip-permissions
 
 Then prime Claude:
 
-> "Read program.md and start optimizing. Run `python train.py`, check the METRIC, modify `train.py` to improve it, and repeat. Honour the Tier 1 → Tier 2 sequencing."
+> "Read `program.md`, `BRANCH_NOTES.md`, and `FRICTION.md` first. Then run `python train.py` once *unmodified* to land **T1.8b** — that captures the post-T1 regression baseline against the pre-T1 0.5333 number, appends a row to `results.tsv`, and prepends a heartbeat to `STATUS.md`. After T1.8b lands, begin Tier 2 sweeps: pick one axis from `program.md` § 'Tier 2 sweep targets', edit `train.py`, commit with a `T2.x:` prefix, run, append `results.tsv`, repeat. Honour the Tier 1 → Tier 2 sequencing — do not start Tier 2 until T1.8b is committed."
 
 > **Warning:** `--dangerously-skip-permissions` lets Claude run any command without confirmation. Use only on disposable RunPod instances with no sensitive data.
 
@@ -259,10 +276,18 @@ Then continue with `npm install -g @anthropic-ai/claude-code`, `claude login`, t
 If you upgrade `transformers` and start seeing weird "module has no attribute" errors:
 
 ```bash
-rm -rf ~/.cache/huggingface/modules/transformers_modules/nvidia/NVIDIA_hyphen_Nemotron*
+# First inspect what's actually in the cache so you don't run a no-op rm:
+ls ~/.cache/huggingface/modules/transformers_modules/nvidia/
+
+# Then delete the Nemotron entry. On modern transformers the directory uses
+# literal hyphens; older versions sometimes used a "_hyphen_" encoding. Use
+# whichever pattern matches your `ls` output:
+rm -rf ~/.cache/huggingface/modules/transformers_modules/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+# Or if your install uses the older encoding:
+# rm -rf ~/.cache/huggingface/modules/transformers_modules/nvidia/NVIDIA_hyphen_Nemotron*
 ```
 
-This is also the path to clear when re-applying the in-place edits to `modeling_nemotron_h.py` for the F-001 cache fix — see `FRICTION.md` F-001.
+This is also the path to clear when re-applying the in-place edits to `modeling_nemotron_h.py` for the F-001 cache fix — see `FRICTION.md` F-001 and [`nemotron-vault/wiki/nemotron-fast-path-and-cache.md`](../../../nemotron-vault/wiki/nemotron-fast-path-and-cache.md). Note: clearing the cache wipes those in-place edits; you'll need to re-apply them or re-derive them after the next `from_pretrained()`.
 
 ## Reset between experiments
 
