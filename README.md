@@ -98,9 +98,10 @@ Eval is the wall-clock-dominant phase because cache-disabled generation re-runs 
 
 ## License
 
-The data files (`data/train.csv`, `data/test.csv`) are released under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) per the [Kaggle competition](https://www.kaggle.com/competitions/nvidia-nemotron-model-reasoning-challenge) data terms. See [`data/README.md`](data/README.md) for attribution requirements.
+- **Code:** [Apache License 2.0](LICENSE). Copyright 2026 Priyan Chandrapala. Permits commercial use, modification, distribution, patent grant; requires preserving the license/notice in derivative works.
+- **Data** (`data/train.csv`, `data/test.csv`): [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) per the [Kaggle competition](https://www.kaggle.com/competitions/nvidia-nemotron-model-reasoning-challenge) data terms. Attribution requirements are documented in [`data/README.md`](data/README.md).
 
-The code in this repo does not yet have an explicit license. **TODO:** add a `LICENSE` file (typically MIT or Apache-2.0 for code that consumes CC BY 4.0 data and produces LoRA adapters; pick one and add it before public reuse).
+The two licenses are compatible: Apache-2.0 code can consume CC BY 4.0 data and produce LoRA adapters without conflict, as long as downstream redistribution attributes both per their respective terms.
 
 ## Attribution
 
