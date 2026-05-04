@@ -9,8 +9,20 @@ trl>=0.8.0
 datasets>=2.18.0
 
 # Model-specific
+# mamba_ssm: REQUIRED. modeling_nemotron_h.py unconditionally imports
+# rmsnorm_fn from mamba_ssm; without it, the model fails to load before
+# train.py:386's fast-path toggle ever runs.
 mamba_ssm
-causal_conv1d
+# causal_conv1d: COMMENTED OUT — currently inert on main. The fast-path
+# CUDA kernels in causal_conv1d are gated by `is_fast_path_available`,
+# which train.py:386 force-disables as part of the F-001 workaround
+# (HybridMambaAttentionDynamicCache cache bugs). Without causal_conv1d
+# installed, modeling_nemotron_h.py's conditional import sets the relevant
+# functions to None and `is_fast_path_available` evaluates to False
+# automatically — same outcome as the train.py toggle, no behaviour change.
+# Re-enable when F-001 resolves upstream and the fast path is reactivated.
+# See FRICTION.md F-001 and nemotron-vault/wiki/nemotron-fast-path-and-cache.md.
+# causal_conv1d
 sentencepiece
 
 # Data
