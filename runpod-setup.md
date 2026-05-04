@@ -1,5 +1,7 @@
 # RunPod Setup — `autoresearch-sft-grpo` on `main`
 
+[RunPod](https://www.runpod.io/) is an on-demand GPU cloud where you rent a "pod" (a containerised GPU instance) by the hour. This doc walks through bootstrapping `autoresearch-sft-grpo` on a fresh A100 80GB pod, but the same steps work on any cloud that gives you root SSH on a CUDA-12.1+ machine with ≥ 80 GB VRAM (Lambda Labs, Vast.ai, Modal, etc.) — just skip the RunPod-specific notes in Part 2.
+
 This doc is split into three parts. Most users only need **Part 1** (minimal first-run). Parts 2 and 3 are for handing the pod over to autonomous Claude Code or for resolving a setup issue.
 
 | Part | When to use |
