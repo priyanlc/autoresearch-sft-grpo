@@ -30,13 +30,16 @@ Goal: get from a fresh pod to a printed `METRIC: 0.XXXX` line. Seven steps.
 ## 1. Get code + data on the pod
 
 ```bash
-git clone <your-fork-url> nemotron
-cd nemotron/notebooks/05-autoresearch/autoresearch-sft-grpo
+git clone https://github.com/priyanlc/autoresearch-sft-grpo.git
+cd autoresearch-sft-grpo
+# main is the default branch; explicit checkout shown for autoresearch-agent setups
 git checkout main
 
 # Confirm data ships with the repo (CC BY 4.0; see data/README.md)
 ls -la data/train.csv data/test.csv
 ```
+
+> If you forked the repo, replace the URL with your fork. The repo is published standalone on GitHub — it is not nested inside another tree, so the post-clone working directory is flat `autoresearch-sft-grpo/`.
 
 The `train.csv` (9,500 puzzles) and `test.csv` (3-row preview) are tracked in the repo and arrive with the clone — no separate download needed. License and provenance are documented in [`data/README.md`](data/README.md). If those files are missing for any reason (unusual fork state, sparse checkout), pull them from the [Kaggle competition page](https://www.kaggle.com/competitions/nvidia-nemotron-model-reasoning-challenge) and copy into `data/`.
 
@@ -177,7 +180,7 @@ usermod -aG video claude-runner
 usermod -aG render claude-runner
 
 # Move ownership of the project + venv + HF cache
-chown -R claude-runner:claude-runner /path/to/nemotron
+chown -R claude-runner:claude-runner /path/to/autoresearch-sft-grpo
 chown -R claude-runner:claude-runner /home/claude-runner/.cache
 
 # Switch

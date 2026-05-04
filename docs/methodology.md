@@ -86,7 +86,7 @@ The single most important file. Treat it as the system prompt for the autoresear
 
 The Tiered work, Pre-flight verification, Logging contract, and Validation contract sub-sections are reusable verbatim — see their dedicated sections below. Everything else is branch-specific in content but reusable in shape.
 
-**Source of truth:** `notebooks/05-autoresearch/autoresearch-sft-grpo/program.md` on `nvfp4-blackwell`.
+**Source of truth (originally at the nested `notebooks/05-autoresearch/autoresearch-sft-grpo/` path before the standalone repo split):** `program.md` on `nvfp4-blackwell`.
 
 ### 2. `runpod-setup.md` — three-part human onboarding
 
@@ -110,7 +110,7 @@ Splits the pod-side setup into three distinct audiences:
 - The exact pip-install staging order (depends on the branch's source-built packages)
 - Pre-flight Python one-liners (depend on which APIs the train script uses)
 
-**Source of truth:** `notebooks/05-autoresearch/autoresearch-sft-grpo/runpod-setup.md` on `nvfp4-blackwell`. See also `wiki/01-runpod-bootstrap.md` for the higher-level handoff doc.
+**Source of truth (originally at the nested `notebooks/05-autoresearch/autoresearch-sft-grpo/` path before the standalone repo split):** `runpod-setup.md` on `nvfp4-blackwell`. See also `wiki/01-runpod-bootstrap.md` for the higher-level handoff doc.
 
 ### 3. `BRANCH_NOTES.md` — per-branch delta
 
@@ -127,7 +127,7 @@ The pattern is reusable; the contents are always branch-specific by definition.
 
 **Convention:** when a Tier 1 change lands, add a sub-section below the config table noting the change ID, what it did, and which `FRICTION.md` entry (if any) it resolved. This makes `BRANCH_NOTES.md` a chronology readers can follow long after the branch ships.
 
-**Source of truth:** `notebooks/05-autoresearch/autoresearch-sft-grpo/BRANCH_NOTES.md` on `nvfp4-blackwell`.
+**Source of truth (originally at the nested `notebooks/05-autoresearch/autoresearch-sft-grpo/` path before the standalone repo split):** `BRANCH_NOTES.md` on `nvfp4-blackwell`.
 
 ### 4. `STATUS.md` — append-only run log
 
@@ -140,7 +140,7 @@ Two-mode use:
 
 **Reusable verbatim:** the scaffold file with header, conventions, and an HTML-comment block holding the per-block template.
 
-**Source of truth:** `notebooks/05-autoresearch/autoresearch-sft-grpo/STATUS.md` on `nvfp4-blackwell`.
+**Source of truth (originally at the nested `notebooks/05-autoresearch/autoresearch-sft-grpo/` path before the standalone repo split):** `STATUS.md` on `nvfp4-blackwell`.
 
 ### 5. `FRICTION.md` — structured failure log
 
@@ -164,7 +164,7 @@ A friction entry exists when something took **more than a one-line config tweak*
 - **Cross-reference F-ids in three places**: commit messages (`fix: F-007 PEFT crash on adapter merge`), STATUS.md blocks (`Blockers: F-007`), and `train.py` inline comments (`# See FRICTION.md F-006: ...`). Three-way linkage is what makes the run reconstructible months later.
 - **Open ≠ stuck.** An entry can be `final state: open` while you proceed past it with a workaround. The point is to capture what was learned, not to gate progress.
 
-**Source of truth:** `notebooks/05-autoresearch/autoresearch-sft-grpo/FRICTION.md` on `nvfp4-blackwell` (entries `F-001` through `F-006` are worked examples).
+**Source of truth (originally at the nested `notebooks/05-autoresearch/autoresearch-sft-grpo/` path before the standalone repo split):** `FRICTION.md` on `nvfp4-blackwell` (entries `F-001` through `F-006` are worked examples).
 
 ### 6. `results.tsv` — per-experiment ledger
 
