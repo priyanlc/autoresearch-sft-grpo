@@ -39,8 +39,8 @@
 
 `main` carries no FPQuant/PEFT patches (no NVFP4 stack). Two non-trivial workarounds live in `train.py`:
 
-1. **Mamba fast-path disable** (around `train.py:384`) — predates this assimilation; harmless on BF16.
-2. **`model.config.use_cache = False`** at `train.py:530` before eval — defends against F-001 (`HybridMambaAttentionDynamicCache` bugs).
+1. **Mamba fast-path disable** (around `train.py:386`) — predates this assimilation; harmless on BF16.
+2. **`model.config.use_cache = False`** at `train.py:536` before eval — defends against F-001 (`HybridMambaAttentionDynamicCache` bugs).
 
 Cross-references are added inline as `# See FRICTION.md F-NNN` comments in T1.7. The Patches table in `program.md` is empty for `main`.
 

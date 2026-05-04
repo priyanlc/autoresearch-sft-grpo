@@ -4,7 +4,7 @@
 
 ## Active Mode (as of 2026-05-03): BF16 SFT-only on `main`
 
-`main` is the parent-of-branches reference. The active mode is **SFT-only**, with GRPO wrapped in a `try/except` block (`train.py:506`) that gracefully falls back to the SFT adapter when the known Mamba/MoE+TRL tensor-mismatch crash fires (`FRICTION.md` F-002). Do not flip the GRPO path to mandatory; do not enable 4-bit/FP8/NVFP4 quantization on `main` — those are research bets that need their own branches (see `nvfp4-blackwell` for the NVFP4 worked example).
+`main` is the parent-of-branches reference. The active mode is **SFT-only**, with GRPO wrapped in a `try/except` block (`train.py:511`) that gracefully falls back to the SFT adapter when the known Mamba/MoE+TRL tensor-mismatch crash fires (`FRICTION.md` F-002). Do not flip the GRPO path to mandatory; do not enable 4-bit/FP8/NVFP4 quantization on `main` — those are research bets that need their own branches (see `nvfp4-blackwell` for the NVFP4 worked example).
 
 ### Preconditions (the human handles these before you start)
 
@@ -221,7 +221,7 @@ This is the section the human reads first when returning to the loop.
 - **Commit message prefix.** Format: `T1.1: <one-line summary>` so `git log --oneline` matches the tier table.
 - **Revert, don't fix-forward, on regressions.** If a Tier 2 experiment hurts METRIC, `git revert` it rather than patching on top — keeps the experiment record honest.
 - **`BRANCH_NOTES.md` gets a per-tier section** so anyone reading the branch later sees the chronology and which T-IDs landed.
-- **Co-existence smoke test.** GRPO smoke run is expected to crash; that's F-002, not a regression. The standing `try/except` block at `train.py:506` is the smoke harness — every `python train.py` exercises it. No additional `SKIP_GRPO=False` invocation needed.
+- **Co-existence smoke test.** GRPO smoke run is expected to crash; that's F-002, not a regression. The standing `try/except` block at `train.py:511` is the smoke harness — every `python train.py` exercises it. No additional `SKIP_GRPO=False` invocation needed.
 
 ## Validation Contract (every Tier transition)
 
@@ -259,7 +259,7 @@ See [`BRANCH_NOTES.md`](BRANCH_NOTES.md) for the locked configuration table, har
 | Location | Patch | Defends against |
 |---|---|---|
 | `train.py` ~L384 | Mamba fast-path disable (predates assimilation) | Mamba kernel selection issues on the BF16 base; harmless. |
-| `train.py:530` | `model.config.use_cache = False` before eval | FRICTION F-001 (`HybridMambaAttentionDynamicCache` bugs) |
+| `train.py:536` | `model.config.use_cache = False` before eval | FRICTION F-001 (`HybridMambaAttentionDynamicCache` bugs) |
 
 Inline `# See FRICTION.md F-NNN` comments are added in T1.7. The Patches table grows when (and only when) a future fix on `main` defends a specific FRICTION entry.
 

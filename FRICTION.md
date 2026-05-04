@@ -81,9 +81,9 @@ Copy this block for each new entry. **Newer entries go at the top of the Entries
 - **attempts:**
   - `EVAL_MAX_NEW_TOKENS=128` → many outputs truncated.
   - `EVAL_MAX_NEW_TOKENS=256` → barely works; some still cut off.
-  - `EVAL_MAX_NEW_TOKENS=512` (now at `train.py:75`) → reliably emits `\boxed{}`.
+  - `EVAL_MAX_NEW_TOKENS=512` (now at `train.py:76`) → reliably emits `\boxed{}`.
 - **final state:** resolved at 512.
-- **notes:** Cost is wall-clock-bound on the 3-hour eval phase, not memory. Pairs with `EVAL_BATCH_SIZE=1` (`train.py:76`) to stay under 80 GB on A100.
+- **notes:** Cost is wall-clock-bound on the 3-hour eval phase, not memory. Pairs with `EVAL_BATCH_SIZE=1` (`train.py:77`) to stay under 80 GB on A100.
 
 ### F-004 — `USE_COT=False` produces long thinking but no `\boxed{}` answer; METRIC 0.1667
 
@@ -97,12 +97,12 @@ Copy this block for each new entry. **Newer entries go at the top of the Entries
   <response ends without emitting \boxed{}>
   ```
 
-- **hypothesized root cause:** Eval uses `enable_thinking=True` so the model fills `<think>` with native reasoning. Without SFT teaching the think→`\boxed{}` pattern, the model exhausts its budget on thinking and never closes with a boxed answer. SFT with `USE_COT=True` (`train.py:79`, used at line 154) injects static CoT templates inside `<think>` followed by `\boxed{}`, teaching the closing pattern.
+- **hypothesized root cause:** Eval uses `enable_thinking=True` so the model fills `<think>` with native reasoning. Without SFT teaching the think→`\boxed{}` pattern, the model exhausts its budget on thinking and never closes with a boxed answer. SFT with `USE_COT=True` (`train.py:81`, used at line 156) injects static CoT templates inside `<think>` followed by `\boxed{}`, teaching the closing pattern.
 - **attempts:**
   - `USE_COT=False` on 50 samples/type → METRIC 0.1667 (no boxed answers extracted).
   - `USE_COT=True` on 200 samples/type → METRIC 0.5333.
 - **final state:** resolved (USE_COT=True locked on main).
-- **notes:** The CoT templates in `_COT_BY_TYPE` (`train.py:91` onwards) are static-per-category. Earlier observation noted "model parroted templates verbatim instead of reasoning" — at this sample count that parroting is *not* a regression: it is what teaches the closing `\boxed{}` pattern. A future branch may sweep dynamic CoT (the in-progress 2026-04-06 task `bdxqkblt5` was such an attempt).
+- **notes:** The CoT templates in `_COT_BY_TYPE` (`train.py:94` onwards) are static-per-category. Earlier observation noted "model parroted templates verbatim instead of reasoning" — at this sample count that parroting is *not* a regression: it is what teaches the closing `\boxed{}` pattern. A future branch may sweep dynamic CoT (the in-progress 2026-04-06 task `bdxqkblt5` was such an attempt).
 
 ### F-003 — 4-bit quantization degrades METRIC from 0.5333 to 0.1333; BF16 retained
 
@@ -112,7 +112,7 @@ Copy this block for each new entry. **Newer entries go at the top of the Entries
 - **hypothesized root cause:** The Reasoning Challenge requires precise arithmetic and string manipulation (gravity decimals, bit_ops binary, cipher characters). 4-bit weight noise corrupts the rule-induction step. Master-weight quantization paths that work for general SFT do not preserve task-relevant precision here.
 - **attempts:**
   - `load_in_4bit=True` with BitsAndBytes quant config → METRIC 0.1333.
-  - Reverted to plain `torch_dtype=torch.bfloat16` (`train.py:380`) → METRIC 0.5333.
+  - Reverted to plain `torch_dtype=torch.bfloat16` (`train.py:383`) → METRIC 0.5333.
 - **final state:** resolved (BF16 is the locked configuration; see `BRANCH_NOTES.md`).
 - **notes:** BF16 is the parent-of-branches dtype for `main`. The `nvfp4-blackwell` branch demonstrates a different quantization-during-training story (master weights kept) where this F-003 lesson does not directly apply; that's its own research bet.
 
@@ -134,7 +134,7 @@ Copy this block for each new entry. **Newer entries go at the top of the Entries
   Compounded by F-001: even if the tensor mismatch were fixed, each GRPO step would take ~30 min without a working KV cache (generation is O(n²)), making GRPO infeasible on `main` regardless.
 
 - **attempts:**
-  - try/except around `grpo_trainer.train()` so SFT-only completes (`train.py:506-523`) → worked: SFT adapter is preserved; GRPO failure is non-fatal.
+  - try/except around `grpo_trainer.train()` so SFT-only completes (`train.py:511-528`) → worked: SFT adapter is preserved; GRPO failure is non-fatal.
   - Pursuing TRL upgrade or Unsloth GRPOTrainer → not attempted on `main`; deferred to a future branch.
 - **final state:** punted — SFT-only is the documented active mode for `main`.
 - **notes:** `train.py` prints a diagnosis block on this exception (lines 513-523) listing four candidate fixes. Reading the diagnosis is the first step for anyone re-attempting GRPO. Do not enable GRPO as mandatory on `main`; the standing try/except is the smoke harness, not a regression.
@@ -155,6 +155,6 @@ Copy this block for each new entry. **Newer entries go at the top of the Entries
 - **hypothesized root cause:** `~/.cache/huggingface/modules/.../modeling_nemotron_h.py` ships with several latent bugs in the hybrid cache class. Hits any code path that touches the cache (generation with `use_cache=True`, GRPO rollout).
 - **attempts:**
   - Patch `modeling_nemotron_h.py` in place (`conv_dim` 4096→6144, `conv_kernel_size` attribute, `.device` access fixes) → worked for some paths but did not unblock GRPO.
-  - Set `model.config.use_cache = False` before `evaluate_model(...)` (`train.py:530`) → worked for SFT eval; eval is slow (~3 hours for 30 samples) without cache but produces a correct METRIC.
+  - Set `model.config.use_cache = False` before `evaluate_model(...)` (`train.py:536`) → worked for SFT eval; eval is slow (~3 hours for 30 samples) without cache but produces a correct METRIC.
 - **final state:** worked-around (cache disabled at eval; GRPO still blocked, see F-002).
 - **notes:** The in-place edit to the HF cache module is per-pod; clearing the `transformers_modules` cache wipes it. Re-run the same edits or re-derive on each fresh pod (`runpod-setup.md` Part 3 has the cache-clear path). Long term, an upstream PR to the model card is the real fix.
