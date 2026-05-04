@@ -11,10 +11,15 @@ Bootstrap a fresh A100 80GB pod by following [`runpod-setup.md`](runpod-setup.md
 ```bash
 git clone https://github.com/priyanlc/autoresearch-sft-grpo.git
 cd autoresearch-sft-grpo
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt   # see runpod-setup.md for the staged install if mamba_ssm fails
-python prepare.py                 # one-time: downloads the model, builds val_split.json
-python train.py                   # ~4–5 hours; emits "METRIC: 0.XXXX" at the end
+
+# Install uv (one-time): https://docs.astral.sh/uv/
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env
+
+uv venv && source .venv/bin/activate
+uv pip install -r requirements.txt   # see runpod-setup.md for the staged install if mamba_ssm fails
+python prepare.py                    # one-time: downloads the model, builds val_split.json
+python train.py                      # ~4–5 hours; emits "METRIC: 0.XXXX" at the end
 ```
 
 `train.csv` (9,500 puzzles) and `test.csv` (3-row preview) ship with the repo.

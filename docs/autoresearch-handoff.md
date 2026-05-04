@@ -30,7 +30,7 @@ chown -R claude-runner:claude-runner /home/claude-runner/.cache
 su - claude-runner
 ```
 
-> Do all `pip install`, `apt-get`, and `chown` commands as root **before** switching to `claude-runner`. The non-root user does not get sudo.
+> Do all `uv pip install`, `apt-get`, and `chown` commands as root **before** switching to `claude-runner`. The non-root user does not get sudo.
 
 ## Install Claude Code
 

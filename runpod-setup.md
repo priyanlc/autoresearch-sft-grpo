@@ -33,29 +33,35 @@ The `train.csv` (9,500 puzzles) and `test.csv` (3-row preview) are tracked in th
 
 ## 2. Create venv and install Python deps
 
-> Always use a venv — no `pip install` directly into the system Python.
+This repo uses [`uv`](https://docs.astral.sh/uv/) — a fast Rust-based Python package manager and venv tool from Astral. Single binary, `pip`-compatible interface, ~10–100× faster installs.
 
 ```bash
-python -m venv .venv
+# Install uv (one-time, ~5 seconds)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env   # or open a new shell
+
+# Create + activate venv
+uv venv
 source .venv/bin/activate
-pip install -U pip
 ```
 
-`main`'s `requirements.txt` contains one source-built CUDA package (`mamba_ssm`). It `import torch`s in its `setup.py`, so under PEP 517 build isolation pip re-downloads torch into a throwaway temp venv just to compile — the install becomes both very slow (PyPI throughput on RunPod EU pods is ~50 KB/s vs ~36 MB/s on the PyTorch CDN) and very fragile ("ninja not found" or similar). Use this staged sequence instead of a bare `pip install -r requirements.txt`:
+> Always work inside the venv — no `uv pip install` (or `pip install`) into the system Python.
+
+`main`'s `requirements.txt` contains one source-built CUDA package (`mamba_ssm`). It `import torch`s in its `setup.py`, so under PEP 517 build isolation the installer re-downloads torch into a throwaway temp venv just to compile — the install becomes both very slow (PyPI throughput on RunPod EU pods is ~50 KB/s vs ~36 MB/s on the PyTorch CDN) and very fragile ("ninja not found" or similar). Use this staged sequence instead of a bare `uv pip install -r requirements.txt`:
 
 ```bash
 # Step 1 — torch first, from the PyTorch CDN
-pip install 'torch>=2.2.0' --index-url https://download.pytorch.org/whl/cu121
+uv pip install 'torch>=2.2.0' --index-url https://download.pytorch.org/whl/cu121
 
 # Step 2 — build helpers (ninja in particular — without it the source
 # build in step 3 falls back to slow serial nvcc compilation or fails outright)
-pip install ninja packaging wheel setuptools
+uv pip install ninja packaging wheel setuptools
 
 # Step 3 — source-built CUDA package, --no-build-isolation
-pip install mamba_ssm --no-build-isolation
+uv pip install mamba_ssm --no-build-isolation
 
 # Step 4 — the rest of requirements.txt (transformers, peft, trl, etc.)
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 ```
 
 `causal_conv1d` is intentionally absent from this list — it is commented out in `requirements.txt` per T1.9 because the F-001 workaround in `train.py:386` force-disables the Mamba fast path that would otherwise consume it. With `causal_conv1d` not installed, `is_fast_path_available` evaluates to `False` automatically (same outcome as the train.py toggle, no runtime difference). When F-001 resolves upstream and the fast path is reactivated, `causal_conv1d` should be added back to `requirements.txt` and to the Step 3 install. See [`docs/fast-path-and-cache.md`](docs/fast-path-and-cache.md) for the full mechanical treatment.
