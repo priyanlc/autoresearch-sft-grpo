@@ -28,6 +28,7 @@ python train.py                   # ~4–5 hours; emits "METRIC: 0.XXXX" at the 
 - [`STATUS.md`](STATUS.md) — append-only run log; session summaries at the top.
 - [`docs/methodology.md`](docs/methodology.md) — the 8-artefact autoresearch methodology that frames the loop.
 - [`docs/bf16-sft-only-plan.md`](docs/bf16-sft-only-plan.md) — strategic plan for `main` (what's locked vs parameterizable).
+- [`docs/autoresearch-handoff.md`](docs/autoresearch-handoff.md) — handing the pod over to autonomous Claude Code (non-root user, kickoff prompt, IS_SANDBOX workaround).
 - [`docs/fast-path-and-cache.md`](docs/fast-path-and-cache.md) — technical deep-dive on the Mamba cache workaround.
 - [`data/README.md`](data/README.md) — data provenance and CC BY 4.0 attribution.
 
@@ -44,7 +45,7 @@ train.py            training script (agent edits this)
 prepare.py          one-time setup + eval harness (read-only)
 requirements.txt
 data/               train.csv, test.csv, README.md
-docs/               methodology, strategic plan, technical deep-dives
+docs/               methodology, strategic plan, autoresearch handoff, deep-dives
 ```
 
 ## License

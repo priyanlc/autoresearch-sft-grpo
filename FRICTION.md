@@ -157,4 +157,19 @@ Copy this block for each new entry. **Newer entries go at the top of the Entries
   - Patch `modeling_nemotron_h.py` in place (`conv_dim` 4096→6144, `conv_kernel_size` attribute, `.device` access fixes) → worked for some paths but did not unblock GRPO.
   - Set `model.config.use_cache = False` before `evaluate_model(...)` (`train.py:536`) → worked for SFT eval; eval is slow (~3 hours for 30 samples) without cache but produces a correct METRIC.
 - **final state:** worked-around (cache disabled at eval; GRPO still blocked, see F-002).
-- **notes:** The in-place edit to the HF cache module is per-pod; clearing the `transformers_modules` cache wipes it. Re-run the same edits or re-derive on each fresh pod (`runpod-setup.md` Part 3 has the cache-clear path). Long term, an upstream PR to the model card is the real fix.
+- **notes:** The in-place edit to the HF cache module is per-pod; clearing the `transformers_modules` cache wipes it. Re-run the same edits or re-derive on each fresh pod. Long term, an upstream PR to the model card is the real fix.
+
+  **Clearing the cache** (after a `transformers` upgrade, or to force a re-derive of the in-place edits):
+
+  ```bash
+  # First inspect what's actually in the cache so you don't run a no-op rm:
+  ls ~/.cache/huggingface/modules/transformers_modules/nvidia/
+
+  # Then delete the Nemotron entry. On modern transformers the directory uses
+  # literal hyphens; older versions sometimes used a "_hyphen_" encoding.
+  rm -rf ~/.cache/huggingface/modules/transformers_modules/nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
+  # Older encoding (use whichever matches your `ls` output above):
+  # rm -rf ~/.cache/huggingface/modules/transformers_modules/nvidia/NVIDIA_hyphen_Nemotron*
+  ```
+
+  Clearing wipes any in-place edits to `modeling_nemotron_h.py`; you'll need to re-apply or re-derive them after the next `from_pretrained()`. See [`docs/fast-path-and-cache.md`](docs/fast-path-and-cache.md) for what the edits do and why.
