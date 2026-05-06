@@ -62,11 +62,15 @@ For a richer worked example of the staged-install pattern (including failure mod
 ## 3. Authenticate to Hugging Face and W&B
 
 ```bash
+# Export your tokens (paste the real values in place of <YOUR_KEY>)
+export HF_TOKEN=<YOUR_KEY>
+export WANDB_API_KEY=<YOUR_KEY>
+
 hf auth login --token "$HF_TOKEN"   # token saved to ~/.cache/huggingface/token
 wandb login "$WANDB_API_KEY"        # key saved to ~/.netrc
 ```
 
-If you don't have `$HF_TOKEN` / `$WANDB_API_KEY` exported in the pod's env yet, paste the actual token in place of the variable. `hf auth login` (no `--token`) also supports interactive paste.
+`hf auth login` without `--token` also supports interactive paste if you'd rather not put tokens in your shell history.
 
 If you don't want W&B for the first run:
 ```bash
