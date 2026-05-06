@@ -24,12 +24,48 @@ python train.py                      # ~4–5 hours; emits "METRIC: 0.XXXX" at t
 
 `train.csv` (9,500 puzzles) and `test.csv` (3-row preview) ship with the repo.
 
-For an **unattended autonomous run**, paste [`prompt.md`](prompt.md) into Claude Code on a freshly-bootstrapped pod (with `--dangerously-skip-permissions` and a non-root user per [`docs/autoresearch-handoff.md`](docs/autoresearch-handoff.md)). It walks the agent through pre-flight, install, training, and the Validation Contract sanity check, stopping for human confirmation before any Tier 2 work.
+For an **unattended agent run** instead of the manual flow above, see [Claude Code agent — install and handover](#claude-code-agent--install-and-handover) below.
+
+## Claude Code agent — install and handover
+
+Hand the pod over to Claude Code (or any agent in unattended mode) to reproduce the baseline and iterate on Tier 2 sweeps without you in the loop.
+
+### Install the agent
+
+After the Quickstart through `source .venv/bin/activate` (the agent handles dep install and training itself):
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -
+sudo apt-get install -y nodejs
+npm install -g @anthropic-ai/claude-code
+claude login
+```
+
+### Handover
+
+**1. Set up a non-root user.** RunPod pods boot as root, and `claude --dangerously-skip-permissions` refuses to run as root for safety. See [`docs/autoresearch-handoff.md`](docs/autoresearch-handoff.md) § "Create a non-root user" for the proper flow, or the `IS_SANDBOX=1` shortcut for throwaway pods.
+
+**2. Export your tokens** — `prompt.md` step 1 verifies these are set before authenticating:
+
+```bash
+export HF_TOKEN=<YOUR_KEY>
+export WANDB_API_KEY=<YOUR_KEY>
+```
+
+**3. Kick off the run.** As the non-root user, in the activated venv with the repo cloned:
+
+```bash
+claude --dangerously-skip-permissions
+```
+
+Then paste the full contents of [`prompt.md`](prompt.md) into the session. The prompt walks the agent through pre-flight (`check_install.py` + program.md C-1/C-2/C-3), install (`bash bootstrap.sh` + `uv pip install -r requirements.txt`), authentication, `prepare.py`, `train.py` in the background (the Bash tool's 10-min max would otherwise kill it), and the adapter-on-fresh-BF16-base sanity check via [`sanity_check.py`](sanity_check.py).
+
+The prompt **stops for human confirmation before any Tier 2 work** — verify METRIC ≥ 0.5333 (the locked baseline) before telling Claude to begin sweeps from `program.md` § "Tier 2 sweep targets". For the full agent-runtime details (non-root setup, IS_SANDBOX bypass, branch hygiene), see [`docs/autoresearch-handoff.md`](docs/autoresearch-handoff.md).
 
 ## Where to read next
 
 - [`program.md`](program.md) — the autoresearch agent contract: what to optimise, what's locked, what to log.
-- [`runpod-setup.md`](runpod-setup.md) — full pod onboarding and the autonomous Claude Code handoff.
+- [`runpod-setup.md`](runpod-setup.md) — full manual pod onboarding (the agent path lives in `docs/autoresearch-handoff.md` + `prompt.md`).
 - [`BRANCH_NOTES.md`](BRANCH_NOTES.md) — `main`'s locked configuration and the rationale for each lock.
 - [`FRICTION.md`](FRICTION.md) — failure log. Read before applying any patch that "feels familiar."
 - [`STATUS.md`](STATUS.md) — append-only run log; session summaries at the top.
