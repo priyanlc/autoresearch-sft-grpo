@@ -40,7 +40,14 @@ def main():
     # Model-specific
     print('\nModel-specific:')
     all_ok &= check('mamba_ssm')
-    all_ok &= check('causal_conv1d')
+    # causal_conv1d is intentionally absent on main (F-001 fast path disabled
+    # in train.py:389). Report status without failing the check.
+    try:
+        import causal_conv1d
+        version = getattr(causal_conv1d, '__version__', 'ok')
+        print(f'  {"causal_conv1d":20s} {version} (unused on main — fast path disabled)')
+    except ImportError:
+        print(f'  {"causal_conv1d":20s} not installed (expected on main — fast path disabled)')
     all_ok &= check('sentencepiece')
 
     # Data
