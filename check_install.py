@@ -40,14 +40,11 @@ def main():
     # Model-specific
     print('\nModel-specific:')
     all_ok &= check('mamba_ssm')
-    # causal_conv1d is intentionally absent on main (F-001 fast path disabled
-    # in train.py:389). Report status without failing the check.
-    try:
-        import causal_conv1d
-        version = getattr(causal_conv1d, '__version__', 'ok')
-        print(f'  {"causal_conv1d":20s} {version} (unused on main — fast path disabled)')
-    except ImportError:
-        print(f'  {"causal_conv1d":20s} not installed (expected on main — fast path disabled)')
+    # causal_conv1d is REQUIRED at install time even though the runtime fast
+    # path is force-disabled by train.py:386 — see FRICTION F-009 and T1.14.
+    # transformers' AST-level static check_imports() rejects the modeling
+    # file without it, before train.py's runtime workaround can ever apply.
+    all_ok &= check('causal_conv1d')
     all_ok &= check('sentencepiece')
 
     # Data

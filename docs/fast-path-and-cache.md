@@ -103,7 +103,7 @@ Concretely, this set of edits:
 3. **Drop the in-place edits to `modeling_nemotron_h.py`** that the prior session applied to the HF cache to keep the slow path from crashing on tangentially related issues. Those workarounds become obsolete and should be removed so they don't shadow the upstream fix.
 4. **Update FRICTION F-001** to `final state: resolved`, with a note pointing at the upstream fix commit.
 5. **Update `BRANCH_NOTES.md` Patches table** to drop the row for `use_cache = False`.
-6. **Re-add `causal_conv1d`** to `requirements.txt` if it was previously dropped — at this point it stops being inert and starts mattering.
+6. **Confirm `causal_conv1d` is installed** (it should be, since T1.14 restored it as a hard install-time dep regardless of fast-path state) — at this point it stops being inert and the runtime CUDA kernels it provides start being called.
 7. **Re-evaluate `EVAL_BATCH_SIZE=1` → larger** since memory pressure was driven partly by no-cache eval re-running the full forward each step.
 
 Each lands as its own `T1.x` commit; the regression bar (METRIC ≥ 0.5333) still applies, but the *expected* outcome is METRIC ≈ 0.5333 on accuracy and roughly a 10–20× speedup on eval.
@@ -125,7 +125,7 @@ Worth calling out so readers don't conflate them:
 | Package | Status on `main` | Why |
 |---|---|---|
 | `mamba_ssm` | **Required** to load the model at all | The modeling file does an unconditional `from mamba_ssm.ops.triton.layernorm_gated import rmsnorm_fn` wrapped in `try/except ImportError: raise`. This is the layer's RMSNorm, used regardless of fast-path setting. Different code path, different requirement profile. |
-| `causal_conv1d` | **Optional and currently inert** | All `causal_conv1d` imports are conditional with graceful `None` fallback. When absent, `is_fast_path_available` is automatically `False` — same as what `train.py:386` was forcing. Becomes load-bearing again only when F-001 resolves and the fast path is re-enabled. |
+| `causal_conv1d` | **Required at install time, inert at runtime** (per T1.14, FRICTION F-009) | The runtime imports are conditional with graceful `None` fallback, so the package itself is never *called* while `train.py:386` force-disables the fast path. But transformers' `dynamic_module_utils.check_imports` does AST-level static import checking on `modeling_nemotron_h.py` — it walks every `Import`/`ImportFrom` node regardless of `if`/`try` guards and demands every imported module be importable. So the dep must be present even though it is dead code. Stops being inert when F-001 resolves and the fast path is re-enabled. |
 
 The two packages historically ship together (both are part of the Mamba ecosystem), which makes them feel symmetric. They are not. Inside the Nemotron modeling file, `mamba_ssm` does double duty: it provides the fast-path SSM kernels *and* the RMSNorm primitive. Only the kernel side is gated by `is_fast_path_available`; the RMSNorm import is unconditional.
 

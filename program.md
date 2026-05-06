@@ -62,8 +62,9 @@ If any check hits a "neither expected outcome" branch, **STOP and add a `FRICTIO
 | T1.7a | Fix stale `train.py` line numbers across docs (12 citations) | Landed 2026-05-04 |
 | T1.8a | Mark legacy baselines + heartbeat noting T1.8b deferred | Landed 2026-05-03 |
 | T1.8b | Pod regression run + first heartbeat under new format | **PENDING** — requires A100 80GB; defer until next RunPod session |
-| T1.9 | Comment out `causal_conv1d` in `requirements.txt` (currently inert per F-001 workaround) | Landed 2026-05-04 |
-| T1.10 | Correctness sweep on `program.md` + `BRANCH_NOTES.md` (Patches table rationale, Tier 1 chronology, Validation Contract holdover, pre-flight expansion) | Landed 2026-05-04 (this commit) |
+| T1.9 | Comment out `causal_conv1d` in `requirements.txt` (currently inert per F-001 workaround) | Landed 2026-05-04 — **superseded by T1.14** (mental model was wrong: transformers' static AST check_imports rejects the conditional import even when the runtime fast path is disabled) |
+| T1.10 | Correctness sweep on `program.md` + `BRANCH_NOTES.md` (Patches table rationale, Tier 1 chronology, Validation Contract holdover, pre-flight expansion) | Landed 2026-05-04 |
+| T1.14 | Restore `causal_conv1d` as a hard install-time dep (revert T1.9) + sweep all referencing docs (`requirements.txt`, `bootstrap.sh`, `check_install.py`, `prompt.md`, `program.md`, `BRANCH_NOTES.md`, `runpod-setup.md`, `docs/fast-path-and-cache.md`). Closes FRICTION F-009. | Landed 2026-05-06 |
 
 T1.1..T1.7 made no `train.py` logic changes (T1.7 is comment-only). T1.3a/T1.7a/T1.9/T1.10 are all doc/config corrections that touch no `train.py` logic either. The regression risk for T1.8b is therefore near-zero, but full methodology compliance still requires it.
 

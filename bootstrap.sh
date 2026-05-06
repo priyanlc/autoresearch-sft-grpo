@@ -27,5 +27,12 @@ uv pip install 'torch>=2.2.0' --index-url https://download.pytorch.org/whl/cu121
 # Step 2 — build helpers (ninja in particular — see header)
 uv pip install ninja packaging wheel setuptools
 
-# Step 3 — source-built CUDA package, --no-build-isolation
+# Step 3 — source-built CUDA packages, --no-build-isolation.
+# Both must be installed even though train.py:386 force-disables the Mamba
+# fast path: transformers' dynamic-module loader does AST-level static
+# import checking on modeling_nemotron_h.py and refuses to load it if any
+# imported module is missing — including causal_conv1d, whose import sits
+# inside an `if is_causal_conv1d_available():` guard at runtime but is
+# detected unconditionally by AST scan. See FRICTION.md F-001 and F-009.
 uv pip install mamba_ssm --no-build-isolation
+uv pip install causal_conv1d --no-build-isolation

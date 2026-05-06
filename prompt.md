@@ -3,6 +3,15 @@ SFT-only training pipeline. The human has already cloned the repo, checked
 out the main branch, and activated a uv venv (.venv/bin/activate sourced).
 data/ folder contains train.csv and test.csv.
 
+If `/workspace` is MooseFS-backed (`df -T /workspace` shows `fuse`), the
+venv and uv cache MUST live on local overlay disk (e.g. `/root/`), not on
+`/workspace` — wheel extraction is metadata-heavy and wedges indefinitely
+on FUSE/MooseFS. See FRICTION.md F-007. Recovery if the venv is on
+`/workspace`: `rm -rf /workspace/.../.venv /workspace/.cache/uv`, then
+`uv venv /root/venv-autoresearch`, `ln -s /root/venv-autoresearch
+/workspace/autoresearch-sft-grpo/.venv`, `export UV_CACHE_DIR=/root/uv-cache`,
+then proceed.
+
 This is an autonomous run — you have permission to install, download,
 authenticate, and execute training without confirming each step. STOP
 only when the prompt explicitly says STOP, when a pre-flight check fails,
@@ -17,19 +26,29 @@ is METRIC 0.5333 at commit c1bb0a6. Then:
 1. Confirm the pod-requirements table at the top of runpod-setup.md and
    the Pre-flight verification block in program.md (C-1 BF16 support,
    C-2 transformers==4.51.3, C-3 Nemotron transformers_modules cache).
-   Verify `$HF_TOKEN` and `$WANDB_API_KEY` are exported in the env. Abort
-   and ask if any check fails. Do NOT try to fix preconditions yourself.
-2. Install deps: `bash bootstrap.sh` (handles torch + ninja + mamba_ssm),
-   then `uv pip install -r requirements.txt`. Do NOT install causal_conv1d
-   — it is intentionally absent on main (F-001 fast path force-disabled
-   in train.py:389).
+   Verify `$HF_TOKEN` and `$WANDB_API_KEY` are exported in the env. Verify
+   the active venv is NOT on a MooseFS/FUSE filesystem (`readlink -f
+   $(which python)` should resolve to a local path like `/root/...`, not
+   `/workspace/...`, when `/workspace` is FUSE — see top-of-prompt MooseFS
+   note + FRICTION F-007). Abort and ask if any check fails. Do NOT try to
+   fix preconditions yourself.
+2. Install deps: `bash bootstrap.sh` (handles torch + ninja + mamba_ssm
+   + causal_conv1d), then `uv pip install -r requirements.txt`.
+   `causal_conv1d` IS required at install time — transformers'
+   `check_imports` does AST-level static import checking on
+   modeling_nemotron_h.py and rejects the conditional `from causal_conv1d
+   import ...` even though it sits inside an `if is_causal_conv1d_available()`
+   guard at runtime. See FRICTION F-009 / T1.14. The runtime fast path is
+   still force-disabled at train.py:386, so causal_conv1d's CUDA kernels
+   are present but never called.
 3. Authenticate non-interactively: `hf auth login --token $HF_TOKEN` and
    `wandb login $WANDB_API_KEY`. (Note: W&B is currently disabled in
    train.py via `report_to='none'`; the login is harmless and reserved
    for future re-enablement.)
 4. Run pre-flight: `python check_install.py` (expect "All checks passed";
-   the informational causal_conv1d line is expected) plus C-1/C-2/C-3
-   from program.md § Pre-flight verification.
+   `causal_conv1d` should now be reported with a version, not as
+   informational-absent — that wording was T1.9-era and is gone after
+   T1.14) plus C-1/C-2/C-3 from program.md § Pre-flight verification.
 5. STOP if any pre-flight check fails — log to FRICTION.md and ask me
    before proceeding. If the model fails to load with
    `HybridMambaAttentionDynamicCache` errors, clear

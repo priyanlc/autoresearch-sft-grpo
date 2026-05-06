@@ -13,16 +13,19 @@ datasets>=2.18.0
 # rmsnorm_fn from mamba_ssm; without it, the model fails to load before
 # train.py:386's fast-path toggle ever runs.
 mamba_ssm
-# causal_conv1d: COMMENTED OUT — currently inert on main. The fast-path
-# CUDA kernels in causal_conv1d are gated by `is_fast_path_available`,
-# which train.py:386 force-disables as part of the F-001 workaround
-# (HybridMambaAttentionDynamicCache cache bugs). Without causal_conv1d
-# installed, modeling_nemotron_h.py's conditional import sets the relevant
-# functions to None and `is_fast_path_available` evaluates to False
-# automatically — same outcome as the train.py toggle, no behaviour change.
-# Re-enable when F-001 resolves upstream and the fast path is reactivated.
-# See FRICTION.md F-001 and docs/fast-path-and-cache.md.
-# causal_conv1d
+# causal_conv1d: REQUIRED at install time even though the runtime fast path
+# is force-disabled by train.py:386. Reason: transformers' dynamic-module
+# loader (transformers/dynamic_module_utils.py:check_imports) walks the AST
+# of modeling_nemotron_h.py and demands that every imported module be
+# importable, regardless of whether the import sits inside an
+# `if is_causal_conv1d_available():` guard. T1.9 (which previously commented
+# this dep out) was based on a runtime-correct but static-analysis-incorrect
+# mental model; reverted by T1.14 after F-009 reproduced the failure.
+# At runtime the package is harmless: train.py:386 still flips
+# is_fast_path_available to False, so causal_conv1d_fn / causal_conv1d_update
+# are never actually called. See FRICTION.md F-001 and F-009, and
+# docs/fast-path-and-cache.md.
+causal_conv1d
 sentencepiece
 
 # Data
