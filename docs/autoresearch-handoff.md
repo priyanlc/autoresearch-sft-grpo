@@ -1,6 +1,6 @@
 # Autonomous Claude Code Handoff
 
-This doc covers handing the pod over to autonomous Claude Code (or any AI coding agent in unattended mode). Read it after [`../runpod-setup.md`](../runpod-setup.md) — the pod must already have the repo cloned, deps installed, and `python train.py` produce a `METRIC:` line before the autonomous loop is meaningful.
+This doc covers handing the pod over to autonomous Claude Code (or any AI coding agent in unattended mode). Read it alongside [`../runpod-setup.md`](../runpod-setup.md): runpod-setup.md is the manual bootstrap, this doc covers the autonomous handoff. The pod must have the repo cloned and a `uv venv` activated; the kickoff prompt in [`../prompt.md`](../prompt.md) handles install, auth, baseline reproduction, and the Validation Contract sanity check from there.
 
 For interactive iteration (you in the loop, approving each step), this doc isn't needed — just `cd` into the repo and run `claude` from your existing user.
 
@@ -68,9 +68,7 @@ claude
 claude --dangerously-skip-permissions
 ```
 
-Then prime Claude with the kickoff prompt:
-
-> "Read `program.md`, `BRANCH_NOTES.md`, and `FRICTION.md` first. Then run `python train.py` once *unmodified* to capture the current regression baseline — append a row to `results.tsv` and prepend a heartbeat to `STATUS.md`. After that baseline lands, begin Tier 2 sweeps per `program.md` § 'Tier 2 sweep targets': pick one axis, edit `train.py`, commit, run, append `results.tsv`, repeat. Honour the Tier 1 → Tier 2 sequencing."
+Then prime Claude by pasting the full kickoff prompt from [`../prompt.md`](../prompt.md). It covers pre-flight, install, training-in-background, and the Validation Contract sanity check, and stops for human confirmation before any Tier 2 work — so you can verify METRIC ≥ 0.5333 (the locked baseline) before granting permission to iterate.
 
 > **Warning:** `--dangerously-skip-permissions` lets Claude run any command without confirmation. Use only on disposable pods with no sensitive data.
 
