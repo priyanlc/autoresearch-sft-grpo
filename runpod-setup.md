@@ -43,28 +43,17 @@ source $HOME/.local/bin/env   # or open a new shell
 # Create + activate venv
 uv venv
 source .venv/bin/activate
+
+# Install dependencies
+bash bootstrap.sh                    # CUDA-built packages (torch, mamba_ssm, build helpers)
+uv pip install -r requirements.txt   # pure-Python deps (transformers, peft, trl, etc.)
 ```
 
 > Always work inside the venv — no `uv pip install` (or `pip install`) into the system Python.
 
-`main`'s `requirements.txt` contains one source-built CUDA package (`mamba_ssm`). It `import torch`s in its `setup.py`, so under PEP 517 build isolation the installer re-downloads torch into a throwaway temp venv just to compile — the install becomes both very slow (PyPI throughput on RunPod EU pods is ~50 KB/s vs ~36 MB/s on the PyTorch CDN) and very fragile ("ninja not found" or similar). Use this staged sequence instead of a bare `uv pip install -r requirements.txt`:
+`bootstrap.sh` handles the CUDA source-build dance (torch from CDN → ninja → `mamba_ssm --no-build-isolation`) that can't safely run from `requirements.txt` under PEP 517 build isolation. A bare `uv pip install -r requirements.txt` would re-download torch into a throwaway temp venv just to compile mamba_ssm — very slow on RunPod EU pods, often fails. See `bootstrap.sh`'s header for the per-step rationale.
 
-```bash
-# Step 1 — torch first, from the PyTorch CDN
-uv pip install 'torch>=2.2.0' --index-url https://download.pytorch.org/whl/cu121
-
-# Step 2 — build helpers (ninja in particular — without it the source
-# build in step 3 falls back to slow serial nvcc compilation or fails outright)
-uv pip install ninja packaging wheel setuptools
-
-# Step 3 — source-built CUDA package, --no-build-isolation
-uv pip install mamba_ssm --no-build-isolation
-
-# Step 4 — the rest of requirements.txt (transformers, peft, trl, etc.)
-uv pip install -r requirements.txt
-```
-
-`causal_conv1d` is intentionally absent from this list — it is commented out in `requirements.txt` per T1.9 because the F-001 workaround in `train.py:386` force-disables the Mamba fast path that would otherwise consume it. With `causal_conv1d` not installed, `is_fast_path_available` evaluates to `False` automatically (same outcome as the train.py toggle, no runtime difference). When F-001 resolves upstream and the fast path is reactivated, `causal_conv1d` should be added back to `requirements.txt` and to the Step 3 install. See [`docs/fast-path-and-cache.md`](docs/fast-path-and-cache.md) for the full mechanical treatment.
+`causal_conv1d` is intentionally absent — it is commented out in `requirements.txt` per T1.9 because the F-001 workaround in `train.py:386` force-disables the Mamba fast path that would otherwise consume it. With `causal_conv1d` not installed, `is_fast_path_available` evaluates to `False` automatically (same outcome as the train.py toggle, no runtime difference). When F-001 resolves upstream and the fast path is reactivated, add `causal_conv1d` back to `requirements.txt` and to `bootstrap.sh` step 3. See [`docs/fast-path-and-cache.md`](docs/fast-path-and-cache.md) for the full mechanical treatment.
 
 For a richer worked example of the staged-install pattern (including failure modes captured live), see the `nvfp4-blackwell` branch's setup doc: `git show nvfp4-blackwell:runpod-setup.md` § Part 1 § 2, and `git show nvfp4-blackwell:build.log` for timing data.
 
