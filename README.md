@@ -24,6 +24,8 @@ python train.py                      # ~4–5 hours; emits "METRIC: 0.XXXX" at t
 
 `train.csv` (9,500 puzzles) and `test.csv` (3-row preview) ship with the repo.
 
+For an **unattended autonomous run**, paste [`prompt.md`](prompt.md) into Claude Code on a freshly-bootstrapped pod (with `--dangerously-skip-permissions` and a non-root user per [`docs/autoresearch-handoff.md`](docs/autoresearch-handoff.md)). It walks the agent through pre-flight, install, training, and the Validation Contract sanity check, stopping for human confirmation before any Tier 2 work.
+
 ## Where to read next
 
 - [`program.md`](program.md) — the autoresearch agent contract: what to optimise, what's locked, what to log.
@@ -33,7 +35,8 @@ python train.py                      # ~4–5 hours; emits "METRIC: 0.XXXX" at t
 - [`STATUS.md`](STATUS.md) — append-only run log; session summaries at the top.
 - [`docs/methodology.md`](docs/methodology.md) — the 8-artefact autoresearch methodology that frames the loop.
 - [`docs/bf16-sft-only-plan.md`](docs/bf16-sft-only-plan.md) — strategic plan for `main` (what's locked vs parameterizable).
-- [`docs/autoresearch-handoff.md`](docs/autoresearch-handoff.md) — handing the pod over to autonomous Claude Code (non-root user, kickoff prompt, IS_SANDBOX workaround).
+- [`docs/autoresearch-handoff.md`](docs/autoresearch-handoff.md) — handing the pod over to autonomous Claude Code (non-root user, IS_SANDBOX workaround).
+- [`prompt.md`](prompt.md) — the autonomous-run kickoff prompt itself; paste into Claude Code on a freshly-bootstrapped pod to reproduce the locked 0.5333 baseline end-to-end before starting Tier 2.
 - [`docs/fast-path-and-cache.md`](docs/fast-path-and-cache.md) — technical deep-dive on the Mamba cache workaround.
 - [`data/README.md`](data/README.md) — data provenance and CC BY 4.0 attribution.
 
@@ -41,13 +44,16 @@ python train.py                      # ~4–5 hours; emits "METRIC: 0.XXXX" at t
 
 ```
 program.md          agent contract
-runpod-setup.md     pod bootstrap
+runpod-setup.md     pod bootstrap (manual)
+prompt.md           autonomous-run kickoff prompt
 BRANCH_NOTES.md     locked config
 FRICTION.md         failure log
 STATUS.md           run log
 results.tsv         per-experiment metric ledger
 train.py            training script (agent edits this)
 prepare.py          one-time setup + eval harness (read-only)
+sanity_check.py     adapter-on-fresh-base check (Validation Contract point 5)
+bootstrap.sh        CUDA-built deps (torch, mamba_ssm) — see runpod-setup.md
 requirements.txt
 data/               train.csv, test.csv, README.md
 docs/               methodology, strategic plan, autoresearch handoff, deep-dives
