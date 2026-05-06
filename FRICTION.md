@@ -44,6 +44,31 @@ Copy this block for each new entry. **Newer entries go at the top of the Entries
 
 <!-- Append new entries below this line, newest first. Use sequential ids: F-001, F-002, ... -->
 
+### F-010 — `hf_xet` worker→main thread deadlock during model weights download leaves a permanent `.incomplete` shard
+
+- **timestamp:** 2026-05-06 22:53 UTC (deadlock onset) / 22:58 UTC (diagnosis)
+- **phase:** model_load
+- **signature:**
+
+  ```
+  train.py stdout last line: "Loading model: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16"
+  HF cache: 19 finalized shards + 1 frozen .incomplete file at 4,995,693,272 bytes,
+  mtime 22:53:12, never grew or got renamed.
+  python (PID 6515) alive, ~26% CPU, all 119 threads in futex_do_wait, one thread
+  in FUSE wait (request_wait_answer). Zero active TCP connections to HF endpoints.
+  xet log (/workspace/.cache/huggingface/xet/logs/...) ends at 22:53:11 with a
+  successful `Received CAS response status_code=206` — no error, no further
+  log lines for 4+ minutes.
+  ```
+
+- **hypothesized root cause:** With the pod-level env var `HF_XET_HIGH_PERFORMANCE=1` enabled, `huggingface_hub` routes large downloads through the Rust `hf_xet` client (parallel S3-range chunked downloads). One worker apparently terminated (cleanly, judging by the absence of an error in the xet log) without notifying the main download thread; the main thread is stuck at `futex_do_wait` waiting for a queue event that never arrives. Compounding factor: `/workspace` is MooseFS-backed (FUSE), and the `request_wait_answer` thread suggests xet's final write/rename was waiting on FUSE flush at the time the worker exited. Whether this is xet's bug or a MooseFS-induced manifestation isn't determined; the practical effect is the same — download cannot complete.
+- **attempts:**
+  - Watched for 4+ min after the freeze → no spontaneous recovery; cache size constant, file mtime constant, write_bytes constant.
+  - Inspected open fds (`.incomplete` file open w/o, `.lock` file open) and thread states → confirmed deadlock signature, no active workers.
+  - Killed train.py (PID 6515), removed the stuck `*.incomplete` and stale `*.lock` files, **unset `HF_XET_HIGH_PERFORMANCE`** for the retry (kept `HF_HUB_ENABLE_HF_TRANSFER=1` — that's the older `hf_transfer` package, a separate code path that worked fine for the first 12 shards), re-ran `python train.py` → **download progressing again** at last check.
+- **final state:** worked-around.
+- **notes:** Pre-flight check before any HF model download on RunPod: if both `HF_XET_HIGH_PERFORMANCE=1` and `HF_HUB_ENABLE_HF_TRANSFER=1` are set at the pod level (as on this image), prefer to `unset HF_XET_HIGH_PERFORMANCE` and rely on `hf_transfer` alone — fewer moving parts, no FUSE-tickling parallel S3 ranges. Add to `runpod-setup.md` § 3 if this reproduces a second time. Generalisable: any time multiple competing "fast download" stacks are enabled simultaneously, hangs become a possibility — pick one.
+
 ### F-009 — `train.py` model load fails with `ImportError: causal_conv1d` despite the documented "conditional import handles it" defense
 
 - **timestamp:** 2026-05-06 22:18 UTC
