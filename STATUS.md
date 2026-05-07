@@ -26,6 +26,31 @@ Block template (per program.md):
 End-of-session summary blocks go at the very top under the heading `### Session Summary YYYY-MM-DD`.
 -->
 
+### 2026-05-07 ~14:55 UTC — T2.7 (SFT_SAMPLES_PER_TYPE 200 → 300) result: METRIC 0.5333 (regression vs T1.16 0.5667; matches c1bb0a6 baseline). Reverting per branch hygiene.
+
+- **Current best METRIC:** 0.5667 (T1.16, unchanged). T2.7 yielded 0.5333.
+- **Experiments since last status:** 1 (commit `cdb1aa7`, T2.7).
+- **What was tried:** First Tier 2 sweep — bumped `SFT_SAMPLES_PER_TYPE` 200 → 300 (1200 → 1800 SFT samples, 6 categories × 300). All other hyperparameters and prompt-format unchanged. Hypothesis: cipher 20% / gravity 20% might be undertrained on data volume.
+- **Result:** METRIC 0.5333 vs T1.16's 0.5667. Per-category:
+  - bit_ops 60% (3/5) — same
+  - **cipher 0% (0/5)** — regressed from 1/5 in T1.16
+  - gravity 20% (1/5) — same
+  - numeral 100% (5/5) — same
+  - symbol 40% (2/5) — same
+  - unit_conv 100% (5/5) — same
+- **Net effect:** hurt by 0.0334. But ±0.0333 is the irreducible variance floor for a 30-sample val (1 sample = 1/30 = 0.0333), so this is one-sample noise on cipher, not a real shift. Data-volume hypothesis is dead — more SFT samples did not move the gap categories.
+- **Time:** 23,397 s (6 h 30 m). 1.43× T1.16's 16,367 s, matching the 1.5× SFT step-count increase (450 vs 300 steps × ~42 s/step). Per-step time was identical between runs; earlier "slowdown" claim was a misread of progress-bar data.
+- **Adapter sanity check (separate Python process, fresh BF16 base):** PASS. 73 tokens / 122 chars on the same gravity val example as T1.16. Output: `Using d = 0.5*g*t^2: g = 2d/t^2 = 2*0.5/1.86^2 = 0.2891. Apply to find d for the new t. Answer: 58.5` (gold 59.3).
+- **Critical diagnostic — T2.8 target:** the sanity-check output (and the eval debug for gravity) shows the model has internalized a *broken* dynamic CoT pattern. Investigation found the bug: `_build_dynamic_cot()` in train.py has buggy regexes for both cipher and gravity:
+  - **Gravity regex** `r't\s*=\s*([\d.]+).*?d\s*=\s*([\d.]+)'` matches the first `d=` it sees, which is **inside the formula `d = 0.5*g*t^2`** rather than the data-point line. So it extracts `t=1.86, d=0.5` and computes `g=0.2891` instead of using actual `d=17.75` (true `g≈10.27`). The model is trained on `<think>` blocks claiming `g=0.2891`, which is what we now see at inference.
+  - **Cipher regex** `r'([a-z\s]+?)\s*->\s*([a-z\s]+)'` is greedy across newlines — on a real cipher prompt it returns 3 matches but the first is `('\ngeq bytq lyca tgxkyqt', 'the wise king studies\ngeq sxjyoxt tgxkqcg tqqt ')`, pairing one line's cipher with multiple lines of plain text. Substitution map built from this is garbage.
+  - Both bugs were probably masked previously because static `_COT_BY_TYPE` fallback was used when the regex didn't match at all, but on these prompts the broken regex *does* match and produces garbage that's worse than the static fallback.
+- **Decision:** revert T2.7 per program.md branch hygiene ("Revert, don't fix-forward, on regressions"). Drafting T2.8 next: fix both regexes in `_build_dynamic_cot()`. Highly likely to move cipher and gravity since the structural cause of both being weak has been identified.
+- **Side note:** BRANCH_NOTES.md "SFT ~1 h, eval ~3 h" appears stale vs observed (~3.5 h SFT, ~1 h eval). Worth a doc-only T-id fix, not blocking.
+- **Blockers:** none open.
+
+---
+
 ### Session Summary 2026-05-07 — Baseline restoration on fresh A100 80GB pod (autonomous overnight run)
 
 - **Best METRIC achieved:** **0.5667** (bit_ops 60%, cipher 20%, gravity 20%, numeral 100%, symbol 40%, unit_conv 100%) — **+0.0334 vs c1bb0a6 locked baseline 0.5333.** The single-step gain is cipher 0/5 → 1/5 (+1 sample correct = +1/30 = +0.0333 on METRIC); other categories identical. Within run-to-run variance for a 30-sample val set, but the regression bar is comfortably met.
