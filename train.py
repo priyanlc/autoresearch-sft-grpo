@@ -37,7 +37,7 @@ from prepare import (
 # ============================================================
 
 # Data
-SFT_SAMPLES_PER_TYPE = 200        # 6 * 200 = 1200 SFT samples (matching Kaggle baseline)
+SFT_SAMPLES_PER_TYPE = 300        # 6 * 300 = 1800 SFT samples (T2.7 sweep up from 200)
 GRPO_SAMPLES_PER_TYPE = 20        # 6 * 20 = 120 GRPO prompts
 
 # SFT Phase (warmup)
