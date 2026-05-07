@@ -105,9 +105,13 @@ _COT_DEFAULT = "Let me analyze the pattern in the given examples and apply it to
 def _build_dynamic_cot(qtype, prompt, answer):
     """Build a category-specific reasoning trace using example data + answer."""
     if qtype == 'cipher':
-        # Extract cipher/plain pairs from the prompt to build a substitution map
+        # Extract cipher/plain pairs from the prompt to build a substitution map.
+        # T2.8: anchor each pair to a single line via re.MULTILINE. The previous
+        # regex was greedy across newlines and produced garbled pairs like
+        # ('\nciphertext_a', 'plaintext_a\nciphertext_b'), training the model on
+        # nonsense substitution maps. See FRICTION.md F-011.
         import re as _re
-        pairs = _re.findall(r'([a-z\s]+?)\s*->\s*([a-z\s]+)', prompt.lower())
+        pairs = _re.findall(r'^([^\n]+?)\s*->\s*([^\n]+?)\s*$', prompt.lower(), _re.MULTILINE)
         mapping = {}
         for cipher, plain in pairs:
             cipher = cipher.strip()
@@ -121,9 +125,14 @@ def _build_dynamic_cot(qtype, prompt, answer):
             return (f"I'll build the substitution map from the examples. Mapping: {map_str}. "
                     f"Applying this to the cipher gives: {answer}")
     elif qtype == 'gravity':
-        # Try to extract a (t, d) pair to compute g
+        # Try to extract a (t, d) pair to compute g.
+        # T2.8: require the literal "distance" keyword (and "m" suffix) so the
+        # regex matches the data lines ("For t = 1.86s, distance = 17.75 m") and
+        # NOT the formula ("d = 0.5*g*t^2") that appears later in the prompt.
+        # The old regex matched `d=0.5` from the formula and produced g≈0.29
+        # instead of the correct ~10.27. See FRICTION.md F-011.
         import re as _re
-        m = _re.search(r't\s*=\s*([\d.]+).*?d\s*=\s*([\d.]+)', prompt, _re.DOTALL | _re.IGNORECASE)
+        m = _re.search(r't\s*=\s*([\d.]+)s?\s*,?\s*distance\s*=\s*([\d.]+)\s*m', prompt, _re.IGNORECASE)
         if m:
             t, d = float(m.group(1)), float(m.group(2))
             g = 2 * d / (t * t) if t > 0 else 0

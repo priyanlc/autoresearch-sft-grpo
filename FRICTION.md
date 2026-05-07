@@ -44,6 +44,42 @@ Copy this block for each new entry. **Newer entries go at the top of the Entries
 
 <!-- Append new entries below this line, newest first. Use sequential ids: F-001, F-002, ... -->
 
+### F-011 — `_build_dynamic_cot()` regexes for cipher and gravity silently produce garbage training CoT
+
+- **timestamp:** 2026-05-07 14:55 UTC (diagnosis) / fixed by T2.8
+- **phase:** sft (training data preparation)
+- **signature:**
+
+  Cipher: `_build_dynamic_cot('cipher', prompt, answer)` was supposed to extract `(ciphertext, plaintext)` pairs from prompts like
+
+  ```
+  geq bytq lyca tgxkyqt -> the wise king studies
+  geq sxjyoxt tgxkqcg tqqt -> the curious student sees
+  ...
+  ```
+
+  and build a substitution map. The old regex `r'([a-z\s]+?)\s*->\s*([a-z\s]+)'` was greedy across newlines: on a real prompt with 5 cipher/plaintext pairs, it returned 3 matches with pairings like `('\ngeq bytq lyca tgxkyqt', 'the wise king studies\ngeq sxjyoxt tgxkqcg tqqt ')` — pairing one cipher line with the first plaintext line *plus* the start of the next sample. The substitution map built from this is nonsense.
+
+  Gravity: `_build_dynamic_cot('gravity', prompt, answer)` was supposed to compute `g` from one `(t, d)` data point in prompts like
+
+  ```
+  In Alice's Wonderland, the gravitational constant has been secretly changed.
+  For t = 1.86s, distance = 17.75 m
+  For t = 2.98s, distance = 45.55 m
+  ...
+  Now, determine the falling distance for t = 3.4s given d = 0.5*g*t^2.
+  ```
+
+  The old regex `r't\s*=\s*([\d.]+).*?d\s*=\s*([\d.]+)'` (with `re.DOTALL`) greedily walked past the data lines and matched the FIRST `d=` it found, which is **inside the formula `d = 0.5*g*t^2`** at the end of the prompt. So it extracted `t=1.86, d=0.5` and computed `g = 2*0.5/1.86² ≈ 0.2891` instead of using `d=17.75` (true `g ≈ 10.27`). The model trained on `<think>` blocks claiming `g=0.2891`, then reproduced exactly that pattern at inference (verified in T1.16, T2.7 eval debug, and T2.7 sanity check output: `g = 2*0.5/1.86^2 = 0.2891. Apply to find d for the new t. Answer: 58.5`).
+
+- **hypothesized root cause:** The dynamic-CoT path was written when the prompt format was simpler / different. As the prompts evolved, the regexes silently started misfiring — but the call site in `build_sft_text()` falls back to the static `_COT_BY_TYPE` template *only when `_build_dynamic_cot()` returns `None`*. The broken regexes returned successful (non-None) garbage, not None, so the fallback never engaged. The model was trained on bad CoT for cipher and gravity in every run on `main` since this regex shipped.
+- **attempts:**
+  - Tested both regexes against the actual val split prompts → confirmed cipher returns 3 garbled pairs (instead of 5 clean), gravity returns `('1.86', '0.5')` (instead of `('1.86', '17.75')`).
+  - T2.8: replace cipher regex with `r'^([^\n]+?)\s*->\s*([^\n]+?)\s*$'` + `re.MULTILINE` (line-anchored, no greedy newline crossing) → 5 clean pairs. Replace gravity regex with `r't\s*=\s*([\d.]+)s?\s*,?\s*distance\s*=\s*([\d.]+)\s*m'` → matches data lines, ignores the formula. Produces correct `g ≈ 10.26`.
+  - Did not change `bit_ops` or `unit_conv` dynamic-CoT branches — both currently 100% on val and their regexes don't show the same failure mode.
+- **final state:** resolved by T2.8 (code change in `train.py:_build_dynamic_cot`).
+- **notes:** Root-cause for cipher/gravity remaining at 0-20% across the c1bb0a6 baseline, T1.16, and T2.7 runs. Data-volume sweeps couldn't fix this because more training data on broken CoT just reinforces the broken pattern. Strong prior that T2.8 will move both categories — by how much depends on whether the model can actually *use* a clean substitution map / correct g-value at inference, or whether it just memorises the training-time computation. Either way, removing the structural defect is necessary before any other Tier 2 prompt-format experiment can be evaluated meaningfully.
+
 ### F-010 — `hf_xet` worker→main thread deadlock during model weights download leaves a permanent `.incomplete` shard
 
 - **timestamp:** 2026-05-06 22:53 UTC (deadlock onset) / 22:58 UTC (diagnosis)
