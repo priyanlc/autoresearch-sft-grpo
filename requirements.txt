@@ -2,6 +2,12 @@
 torch>=2.2.0
 transformers==4.51.3
 accelerate>=0.28.0
+# hf_transfer: REQUIRED on pods that set HF_HUB_ENABLE_HF_TRANSFER=1 at the
+# shell level (RunPod base images do). Without the package installed,
+# huggingface_hub silently corrupts downloads — config.json comes through
+# truncated/empty and surfaces as a misleading "Unrecognized model" error in
+# AutoTokenizer.from_pretrained. Added in T1.17, closing F-008.
+hf_transfer
 
 # Fine-tuning
 peft>=0.10.0

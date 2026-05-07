@@ -130,8 +130,8 @@ Copy this block for each new entry. **Newer entries go at the top of the Entries
   - Verified model exists, public, not gated via `HfApi.model_info` → confirmed model is reachable. The error is not auth/visibility.
   - Direct `huggingface_hub.hf_hub_download('config.json')` → reproduced as a clean `hf_transfer` ImportError. Smoking gun.
   - `uv pip install hf_transfer` (`hf-transfer==0.1.9`), `rm -rf /workspace/.cache/huggingface/hub/models--nvidia--NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` to drop the corrupt config, re-ran `python prepare.py` → **worked**. Tokenizer loaded, vocab 131072, val_split.json written.
-- **final state:** resolved.
-- **notes:** Pre-flight check before any HF download: `env | grep -E '^HF_HUB_ENABLE_HF_TRANSFER='`; if set, `python -c "import hf_transfer"` must succeed or installs/downloads will silently corrupt the cache. Either install `hf_transfer` or `unset HF_HUB_ENABLE_HF_TRANSFER`. Generalisable: any time an HF env-var optimization is enabled at the pod level, the matching package must be installed in the venv. Easy to miss because the package is *not* in `requirements.txt` (the env var is a pod-level optimization, not a project dep).
+- **final state:** resolved by T1.17 (added `hf_transfer` to `requirements.txt`).
+- **notes:** Pre-flight check before any HF download: `env | grep -E '^HF_HUB_ENABLE_HF_TRANSFER='`; if set, `python -c "import hf_transfer"` must succeed or installs/downloads will silently corrupt the cache. Post-T1.17 `requirements.txt` covers this for the standard install path; the check is still worth running on any pod where the venv was created before T1.17 landed, or if `--no-deps` was used. Generalisable: any time an HF env-var optimization is enabled at the pod level, the matching package must be installed in the venv.
 
 ### F-007 — `bootstrap.sh` wedges on MooseFS-backed `/workspace` during wheel extraction
 
@@ -269,6 +269,22 @@ Copy this block for each new entry. **Newer entries go at the top of the Entries
   - Set `model.config.use_cache = False` before `evaluate_model(...)` (`train.py:536`) → worked for SFT eval; eval is slow (~3 hours for 30 samples) without cache but produces a correct METRIC.
 - **final state:** worked-around (cache disabled at eval; GRPO still blocked, see F-002).
 - **notes:** The in-place edit to the HF cache module is per-pod; clearing the `transformers_modules` cache wipes it. Re-run the same edits or re-derive on each fresh pod. Long term, an upstream PR to the model card is the real fix.
+
+  **Impact / cost of the `use_cache=False` workaround** (logged 2026-05-07):
+
+  Running eval with no KV cache means every decoded token re-runs the full forward over all prior tokens — roughly O(N²) instead of O(N) per generation. For a 512-token completion budget this is a 100×–500× slowdown on the per-token cost.
+
+  Concrete numbers from this branch's hardware profile (A100 80GB, BF16):
+
+  | Phase | With cache + fast path | Without cache (current) | Multiplier |
+  |---|---|---|---|
+  | Eval (30 samples, 512 tokens each) | ~10 min (model-load dominated) | ~3 h (generation dominated) | ~18× |
+  | GRPO rollout (one round-trip) | ~1 min | ~30 min | ~30× |
+  | Total per `train.py` run | ~1.5 h | ~4.5 h | ~3× |
+
+  Eval is the wall-clock dominant phase of every run on `main`; SFT itself is only ~1 h. The 3-hour eval is the price paid for correctness — the cache bugs would otherwise produce silent generation errors or crashes, neither of which a `\boxed{}`-extraction METRIC can recover from.
+
+  Knock-on effect: F-002 (GRPO punted on Mamba/MoE+TRL tensor mismatch) is *partly* a TRL compatibility problem and *partly* a cache-cost problem — even if TRL were fixed, ~30-min rollouts make GRPO uneconomical at this branch's iteration cadence. Restoring the cache changes that calculus entirely. See [`docs/fast-path-and-cache.md`](docs/fast-path-and-cache.md) § "Speed gains worth quantifying" for the full sequence of unwinds when an upstream fix lands.
 
   **Clearing the cache** (after a `transformers` upgrade, or to force a re-derive of the in-place edits):
 
