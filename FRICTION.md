@@ -44,6 +44,37 @@ Copy this block for each new entry. **Newer entries go at the top of the Entries
 
 <!-- Append new entries below this line, newest first. Use sequential ids: F-001, F-002, ... -->
 
+### F-012 — `adapter_sanity_check.py` hangs between `PeftModel.from_pretrained` and the first `model.generate` call
+
+- **timestamp:** 2026-05-07 20:30 UTC (first attempt) / 20:48 UTC (retry, killed during graceful shutdown)
+- **phase:** eval (post-train sanity check)
+- **signature:**
+
+  ```
+  Loading checkpoint shards: 100%|...| 13/13 [02:26<00:00, 11.25s/it]
+  Loading LoRA adapter from ./adapter
+  <process hangs here for 17+ minutes>
+  ```
+
+  Process state evolves: starts in `Rl` (running multi-thread, ~1140% CPU across ~10 worker threads), then transitions to `Sl` (all threads in `futex_do_wait`). GPU stays at 0% util / ~62 GB used (model loaded into VRAM but no kernels firing). No new stdout. The "Generating (max_new_tokens=512)..." print line never fires, meaning `model.generate(...)` is never reached — the hang is inside the adapter-application path between `PeftModel.from_pretrained(base, ADAPTER_DIR)` and the next Python statement.
+
+- **hypothesized root cause:** Uncertain. The same script + same code path completed in ~5-7 minutes for the T1.16 and T2.7 sanity checks on the same pod. T2.8's adapter is structurally identical (same `LORA_RANK=32`, same `target_modules='all-linear'`, same 880M trainable params, 3.5 GB safetensors file). Three plausible causes:
+
+  1. **MooseFS read-latency variability on the 3.5 GB `adapter_model.safetensors`** — the file lives at `/workspace/autoresearch-sft-grpo/adapter/` (MooseFS-backed). After the file fd was closed (verified via `/proc/<pid>/fd`), python continued at very high CPU for ~7 min then went to sleep. A first-touch FUSE metadata operation could be the trigger, similar in flavour to F-007 (MooseFS wedges wheel extraction) but at a different layer.
+  2. **PEFT silent merge / dtype-conversion path** — `PeftModel.from_pretrained` shouldn't merge unless `merge_and_unload()` is called, but it does some tensor placement work that depends on the base model's dtype/device-map. With BF16 base and BF16 adapter, this should be a no-op. Maybe a deserialization edge case.
+  3. **Eventfd / CUDA stream wait** — three eventfds were open on the python process (`/proc/<pid>/fd/4`, `17`, `24`); thread states going from Running to futex-wait suggests workers completed, but the main thread never woke up. Could be a missed signal.
+
+- **attempts:**
+  - Verified python process alive, multi-threaded, no open files (file reads complete) → not a download/IO stall.
+  - Killed PID 24023 cleanly via `SIGTERM` after 18 minutes; GPU memory freed → process was responsive to signals, just stuck waiting.
+  - Retried sanity check fresh (`python adapter_sanity_check.py`) → reached the same `Loading LoRA adapter from ./adapter` print and hung again (killed during graceful shutdown).
+- **final state:** open. The hang prevented running the methodology-required adapter-on-fresh-base sanity check for T2.8. T2.8's METRIC, per-category breakdown, time, and peak VRAM all printed cleanly to stdout and are recoverable, but the deployment-path validation step (program.md § Validation Contract item 5) was not completed this session.
+- **notes:** Next-session investigation:
+  - Try the sanity check on a fresh pod (cold MooseFS cache) — if it works, the bug is something about the warm-cache state on this pod after a long session.
+  - Try copying the adapter to local overlay disk first (`cp -r adapter /root/adapter-T2.8 && python -c "ADAPTER_DIR='/root/adapter-T2.8'; ..."`) to rule out MooseFS in the adapter-application phase.
+  - Try `torch.cuda.synchronize()` calls around the PEFT load to flush any pending CUDA work before adapter application.
+  - If reproducible, file an issue with the `peft` repo with the trace + minimal repro.
+
 ### F-011 — `_build_dynamic_cot()` regexes for cipher and gravity silently produce garbage training CoT
 
 - **timestamp:** 2026-05-07 14:55 UTC (diagnosis) / fixed by T2.8

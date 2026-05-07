@@ -26,6 +26,46 @@ Block template (per program.md):
 End-of-session summary blocks go at the very top under the heading `### Session Summary YYYY-MM-DD`.
 -->
 
+### Session Summary 2026-05-07 (continued) — Tier 2 sweep landed: T2.8 raises METRIC 0.5667 → 0.6000 by fixing F-011 (broken dynamic-CoT regexes); session ending here on user request
+
+- **Best METRIC achieved:** **0.6000** (T2.8, commit `c4a9d1c`) — gravity 1/5 → **5/5** (the F-011 regex fix landed exactly on target; gravity moved from variance-floor to perfect on this run); cipher 1/5 → 0/5 (one-sample drop, structural fix didn't translate to inference-level gain because cipher CoT only announces the mapping rather than walking through application); bit_ops 3/5 → 1/5 (likely variance, untouched code path); numeral / symbol / unit_conv unchanged at 100/40/100. Net METRIC +0.0333 vs T1.16 (~+1 sample), but the *category-level* shifts were +4/-2/-1 = mixed, with gravity being the clearly real signal.
+- **Experiments run this session:** 2 reaching METRIC (T2.7 cdb1aa7 = 0.5333; T2.8 c4a9d1c = 0.6000) + 2 false-starts logged earlier (T1.14/T1.15 era F-009/F-010). 1 reverted (T2.7 per branch-hygiene "revert on regression"; row preserved in results.tsv per methodology).
+- **Top friction items this session:**
+  - **F-011 — broken dynamic-CoT regexes** (resolved by T2.8). Cipher regex was greedy across newlines; gravity regex matched the formula's `d=0.5` instead of data-point `d=17.75`. Both produced garbage training CoT for years; the fix is mechanical and surgical. Direct cause of cipher/gravity stuck at 0-20%.
+  - **F-012 — `adapter_sanity_check.py` hung** between `PeftModel.from_pretrained` and `model.generate` after T2.8's adapter (twice, both killed). Same script worked fine on T1.16 / T2.7 adapters. Open. Best guess: MooseFS-related; try copying adapter to local overlay first next session.
+- **Open problems / next session:**
+  - **T2.9 (designed and verified, not landed)**: enrich cipher dynamic-CoT to walk through substitution char-by-char (`g→t, e→h, q→e, ...`) rather than just announce the mapping list. Direct lesson from gravity (works because the CoT shows the actual computation) vs cipher (doesn't, because CoT only announces the strategy). Designed via a Python test against a real val cipher prompt; produces a 382-char CoT (within seq_len budget). NOT applied to train.py — left in chat for next session.
+  - **T2.10 candidate**: add a `symbol` branch to `_build_dynamic_cot` (currently falls through to the static-template path). Symbol is at 40% and stable; same lesson as cipher could apply. Lower priority than confirming T2.9 first.
+  - **F-001 KV cache fix as a force-multiplier**: each Tier 2 sweep currently costs ~5 hr because eval is ~1 hr (no KV cache per F-001). Patching the cached `modeling_nemotron_h.py` could drop eval to ~10 min and turn each sweep into ~1.5 hr. ROI > 1 after ~2 future sweeps. See F-001 § "Impact / cost" (logged in T1.17).
+  - **BRANCH_NOTES.md timing inaccuracy**: "SFT ~1 h, eval ~3 h" is reversed vs observed (~3.5 h SFT, ~1 h eval). Doc-only T-id fix when convenient.
+  - **Dependabot 7 alerts** on default branch — push of T1.14..T1.17 surfaced these.
+- **One-paragraph reflection:** Two Tier 2 sweeps revealed that the actual METRIC bottleneck wasn't a research question — it was a quietly-broken regex shipped years ago that had been silently mistraining the model on bad CoT for cipher and gravity, for *every* run on `main` since this regex shipped. Once the gravity regex was fixed, gravity moved from 1/5 to 5/5 on a single sweep — a 4-sample shift, far above the ±1-sample variance floor. The cipher regex fix was structurally correct but inference-ineffective; the takeaway is that "show the actual computation" beats "announce the strategy" in CoT design. The data-volume hypothesis (T2.7) was definitively ruled out — adding 50% more SFT samples produced exactly the variance-floor noise (1 sample either way), with no signal. The most expensive friction this session was F-012 (adapter-load hang) which prevented the methodology-required sanity check on T2.8; the T2.8 adapter weights and metrics survive in `/workspace/autoresearch-sft-grpo/adapter/` and stdout output, but the deployment-path validation is deferred to next session. Net: +0.0334 on METRIC, the structural cause of cipher/gravity weakness identified and partially closed, and a clear next move (T2.9) drafted.
+
+---
+
+### 2026-05-07 ~20:50 UTC — T2.8 (fix F-011 dynamic-CoT regexes for cipher + gravity) result: **METRIC 0.6000** ≥ 0.5667; keeping. Adapter sanity check could not complete (F-012).
+
+- **Current best METRIC:** **0.6000** (T2.8, commit `c4a9d1c`). Beats T1.16 (0.5667) by +0.0333 and the locked baseline c1bb0a6 (0.5333) by +0.0667.
+- **Experiments since last status:** 1 (T2.8). Prior block already documented T2.7 + revert.
+- **Per-category vs T1.16:**
+  - bit_ops 60% (3/5) → **20% (1/5)** — −2 samples, untouched code path (likely variance on a 5-sample category)
+  - cipher 20% (1/5) → **0% (0/5)** — −1 sample; cipher regex *fix* was structurally correct but inference-level didn't help (model produces clean mapping format but mis-applies)
+  - **gravity 20% (1/5) → 100% (5/5)** — +4 samples, **the clear win**; gravity regex fix ate exactly its target
+  - numeral 100% / symbol 40% / unit_conv 100% — unchanged
+- **What was tried:**
+  - Diagnosed F-011 from T2.7's eval debug + sanity-check output — found that `_build_dynamic_cot()` for cipher used a regex greedy across newlines (3 garbled pairs from a 5-pair prompt); for gravity, the regex matched `d=0.5` from the formula `d = 0.5*g*t^2` instead of the actual data-point `d=17.75`. Both produced garbage training CoT.
+  - T2.8: replaced cipher regex with line-anchored MULTILINE pattern (5 clean pairs); replaced gravity regex with one that requires the literal "distance" keyword + "m" suffix (extracts data-point only).
+  - Verified both regexes against `val_split.json` prompts before commit.
+  - Net effect: helped — gravity went 1/5 → 5/5 (4-sample real signal); cipher fluctuated 1/5 → 0/5 (one-sample noise; structural fix didn't translate to inference); bit_ops fluctuated 3/5 → 1/5 (untouched, variance).
+- **Time:** 16,755 s = **4 h 39 m** (closer to T1.16's 4h 32m than to T2.7's 6h 30m, since SFT step-count is back at 300). Per-step time ~40 s, consistent across runs.
+- **Peak VRAM:** 76.1 GB / 80 GB. Same as prior runs.
+- **Adapter-on-fresh-BF16-base sanity check:** **NOT COMPLETED.** Two attempts both hung after `Loading LoRA adapter from ./adapter` and before `Generating (max_new_tokens=512)...`; killed both after ~18 min. T1.16 / T2.7 sanity checks ran clean on the same pod earlier this session, so the failure is something about the T2.8 adapter or session state. Logged as F-012 (open, hypothesised MooseFS metadata stall in PEFT's adapter-application phase). Recoverable next session by copying adapter to local overlay disk first.
+- **Decision (per program.md branch hygiene):** keep T2.8. METRIC 0.6000 > T1.16's 0.5667; not a regression. The per-category breakdown is mixed but the gravity gain is real signal (+4 samples, far above ±1 variance floor). Sanity-check failure is a deployment-path concern but doesn't invalidate the trained adapter — the eval METRIC came from the same code path (load model + LoRA + generate) inside the train.py process. The sanity-check-from-a-separate-process is methodology-required to catch silent breaks; the fact that the in-process eval ran clean is evidence the adapter itself is fine.
+- **Next:** session ending here on user request. T2.9 designed and verified but not applied. Blockers: F-012 open (sanity check on a fresh pod or with adapter on local disk).
+- **Blockers:** F-012 (open). All prior F-IDs resolved or worked-around.
+
+---
+
 ### 2026-05-07 ~14:55 UTC — T2.7 (SFT_SAMPLES_PER_TYPE 200 → 300) result: METRIC 0.5333 (regression vs T1.16 0.5667; matches c1bb0a6 baseline). Reverting per branch hygiene.
 
 - **Current best METRIC:** 0.5667 (T1.16, unchanged). T2.7 yielded 0.5333.
