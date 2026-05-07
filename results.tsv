@@ -1,1 +1,2 @@
 commit	metric	bit_ops	cipher	gravity	numeral	symbol	unit_conv	status	description
+0831311	0.5667	60	20	20	100	40	100	success	baseline restoration on fresh A100 80GB pod after T1.14/T1.15; +0.0334 vs c1bb0a6 (cipher 0->20)
