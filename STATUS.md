@@ -26,6 +26,16 @@ Block template (per program.md):
 End-of-session summary blocks go at the very top under the heading `### Session Summary YYYY-MM-DD`.
 -->
 
+### 2026-05-09 — T1.22 prompt.md regression-bar wording sync (closes second T1.20 follow-up)
+
+- **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged.
+- **Experiments since last status:** 0 (documentation-only).
+- **What was tried:** edited `prompt.md` lines 23–24 ("locked baseline" → "locked floor", added current-best 0.6000 reference) and step 8 (added current-best context, kept 0.5333 STOP threshold, added forward note that some Tier 2 already landed and explicit go-ahead is still required for new sweeps). **Threshold unchanged at 0.5333**; agent behaviour for fresh-pod baseline reproductions preserved. Net effect: **neutral** on METRIC by construction.
+- **Next:** both T1.20 follow-ups now closed (T1.21 + T1.22). No queued doc work.
+- **Blockers:** none.
+
+---
+
 ### 2026-05-09 — T1.21 Deduplicate sanity-check helpers (closes T1.20 follow-up)
 
 - **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged.

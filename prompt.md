@@ -20,8 +20,10 @@ refuses to start (Claude Code will not run as root), see
 `docs/autoresearch-handoff.md` for the non-root user setup, then stop
 and ask.
 
-Read program.md first, then BRANCH_NOTES.md to confirm the locked baseline
-is METRIC 0.5333 at commit c1bb0a6. Then:
+Read program.md first, then BRANCH_NOTES.md to confirm the locked floor
+is METRIC 0.5333 at commit c1bb0a6 (current best on main is METRIC 0.6000
+at T2.8 / c4a9d1c — see STATUS.md and results.tsv). The 0.5333 figure is
+the regression bar; do not raise it without explicit instruction. Then:
 
 1. Confirm the pod-requirements table at the top of runpod-setup.md and
    the Pre-flight verification block in program.md (C-1 BF16 support,
@@ -76,9 +78,12 @@ is METRIC 0.5333 at commit c1bb0a6. Then:
    and structurally plausible. Log the result. (Note: program.md does
    not include a ready-made snippet — write the script yourself; the
    reference load pattern is in train.py.)
-8. Verify METRIC ≥ 0.5333 (the locked baseline). If below, STOP — this
-   is a regression; do not start Tier 2 work. Otherwise stop and report.
-   Do NOT start Tier 2 changes until I confirm the baseline.
+8. Verify METRIC ≥ 0.5333 (the locked floor; current best on main is
+   0.6000 at T2.8 — see STATUS.md). If below 0.5333, STOP — this is a
+   regression; do not start Tier 2 work. Otherwise stop and report.
+   Do NOT start Tier 2 changes until I confirm the result, even if you
+   beat 0.5333 — some Tier 2 has already landed (T2.7 reverted, T2.8
+   kept), so new sweeps need explicit go-ahead.
 
 Branch hygiene per program.md: one commit per change ID, T2.x prefix in
 commit messages, revert-not-fix-forward on regressions. FRICTION.md is
