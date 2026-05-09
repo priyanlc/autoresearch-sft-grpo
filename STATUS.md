@@ -26,6 +26,16 @@ Block template (per program.md):
 End-of-session summary blocks go at the very top under the heading `### Session Summary YYYY-MM-DD`.
 -->
 
+### 2026-05-09 — T1.26 README.md handover-section simplification
+
+- **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged.
+- **Experiments since last status:** 0 (documentation-only).
+- **What was tried:** collapsed the two-paragraph agent-handover block in `README.md` (after the `claude --dangerously-skip-permissions` codeblock) into a single tighter paragraph. Cut the C-1/C-2/C-3 cross-reference, the step-by-step `check_install.py` / `bootstrap.sh` / `uv pip install` / `prepare.py` / `train.py`-in-background / `adapter_sanity_check.py` enumeration, the Bash-tool 10-min timeout parenthetical, and the verbose "begin sweeps from `program.md` § Tier 2 sweep targets" phrasing. Kept all load-bearing facts: prompt.md stops before Tier 2, locked floor 0.5333, current best 0.6000, Tier 2 already landed → check `STATUS.md`, handoff details in `docs/autoresearch-handoff.md`. ~50% shorter. **No semantic change** for the agent or the human reader.
+- **Next:** none queued.
+- **Blockers:** none.
+
+---
+
 ### 2026-05-09 — T1.25 program.md Tier 1 chronology fill-in + regression-bar reframe
 
 - **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged.

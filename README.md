@@ -58,9 +58,7 @@ export WANDB_API_KEY=<YOUR_KEY>
 claude --dangerously-skip-permissions
 ```
 
-Then paste the full contents of [`prompt.md`](prompt.md) into the session. The prompt walks the agent through pre-flight (`check_install.py` + program.md C-1/C-2/C-3), install (`bash bootstrap.sh` + `uv pip install -r requirements.txt`), authentication, `prepare.py`, `train.py` in the background (the Bash tool's 10-min max would otherwise kill it), and the adapter-on-fresh-BF16-base sanity check via [`adapter_sanity_check.py`](adapter_sanity_check.py).
-
-The prompt **stops for human confirmation before any Tier 2 work** — verify METRIC ≥ 0.5333 (the locked floor; current best is 0.6000) before telling Claude to begin sweeps from `program.md` § "Tier 2 sweep targets". Note that some Tier 2 work has already landed on `main` (T2.7 reverted, T2.8 kept) — see [`STATUS.md`](STATUS.md) before proposing new sweeps. For the full agent-runtime details (non-root setup, IS_SANDBOX bypass, branch hygiene), see [`docs/autoresearch-handoff.md`](docs/autoresearch-handoff.md).
+Then paste the full contents of [`prompt.md`](prompt.md) into the session. It runs the full setup → train → eval → sanity-check loop end-to-end and **stops for your confirmation before any Tier 2 sweep**. Verify METRIC ≥ 0.5333 (the locked floor) before authorising new sweeps; current best is 0.6000 (T2.8). Some Tier 2 has already landed — check [`STATUS.md`](STATUS.md) first. Full handover details (non-root setup, `IS_SANDBOX` bypass, branch hygiene) are in [`docs/autoresearch-handoff.md`](docs/autoresearch-handoff.md).
 
 ## Where to read next
 
