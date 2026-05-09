@@ -26,6 +26,16 @@ Block template (per program.md):
 End-of-session summary blocks go at the very top under the heading `### Session Summary YYYY-MM-DD`.
 -->
 
+### 2026-05-09 — T1.20 README.md doc-only refresh (no train.py logic change)
+
+- **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged by this T-id.
+- **Experiments since last status:** 0 (documentation-only).
+- **What was tried:** five-point README cleanup — (1) headline METRIC 0.5333 → 0.6000 with locked-floor pointer; (2) agent-handover regression-bar reworded as "floor 0.5333 / current 0.6000"; (3) note added that some Tier 2 (T2.7 reverted, T2.8 kept) has already landed on `main`; (4) sanity-check references repointed to the canonical `adapter_sanity_check.py` (added in T1.16); (5) repo-layout block extended to include `adapter_sanity_check.py`, `check_install.py`, `eval_only.py`. Net effect: **neutral** on METRIC by construction. Also: BRANCH_NOTES.md chronology entry added for T1.20.
+- **Next:** none required. Open follow-up (separate T-id): deduplicate `sanity_check.py` vs `adapter_sanity_check.py` — both have near-identical "Validation Contract point 5" docstrings; `adapter_sanity_check.py` is canonical per program.md / T1.16. `prompt.md` line 79 still says "verify METRIC ≥ 0.5333 (the locked baseline)" — true as the floor, but worth a wording sync in a future T-id.
+- **Blockers:** none.
+
+---
+
 ### Session Summary 2026-05-07 (continued) — Tier 2 sweep landed: T2.8 raises METRIC 0.5667 → 0.6000 by fixing F-011 (broken dynamic-CoT regexes); session ending here on user request
 
 - **Best METRIC achieved:** **0.6000** (T2.8, commit `c4a9d1c`) — gravity 1/5 → **5/5** (the F-011 regex fix landed exactly on target; gravity moved from variance-floor to perfect on this run); cipher 1/5 → 0/5 (one-sample drop, structural fix didn't translate to inference-level gain because cipher CoT only announces the mapping rather than walking through application); bit_ops 3/5 → 1/5 (likely variance, untouched code path); numeral / symbol / unit_conv unchanged at 100/40/100. Net METRIC +0.0333 vs T1.16 (~+1 sample), but the *category-level* shifts were +4/-2/-1 = mixed, with gravity being the clearly real signal.

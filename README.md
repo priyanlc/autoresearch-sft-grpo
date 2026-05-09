@@ -2,7 +2,7 @@
 
 A Karpathy-style [autoresearch](https://github.com/karpathy/autoresearch) loop applied to the [NVIDIA Nemotron Model Reasoning Challenge](https://www.kaggle.com/competitions/nvidia-nemotron-model-reasoning-challenge) on Kaggle. An AI coding agent (e.g. Claude Code) reads `program.md`, edits `train.py`, runs it, parses `METRIC: 0.XXXX` from stdout, commits or reverts, and repeats.
 
-`main` runs **BF16 SFT-only** with graceful GRPO fallback. Current best METRIC: **0.5333**.
+`main` runs **BF16 SFT-only** with graceful GRPO fallback. Current best METRIC: **0.6000** (T2.8, `c4a9d1c`); locked floor: 0.5333 (`c1bb0a6`). See [`STATUS.md`](STATUS.md) and [`results.tsv`](results.tsv) for the latest run.
 
 ## Quickstart
 
@@ -58,9 +58,9 @@ export WANDB_API_KEY=<YOUR_KEY>
 claude --dangerously-skip-permissions
 ```
 
-Then paste the full contents of [`prompt.md`](prompt.md) into the session. The prompt walks the agent through pre-flight (`check_install.py` + program.md C-1/C-2/C-3), install (`bash bootstrap.sh` + `uv pip install -r requirements.txt`), authentication, `prepare.py`, `train.py` in the background (the Bash tool's 10-min max would otherwise kill it), and the adapter-on-fresh-BF16-base sanity check via [`sanity_check.py`](sanity_check.py).
+Then paste the full contents of [`prompt.md`](prompt.md) into the session. The prompt walks the agent through pre-flight (`check_install.py` + program.md C-1/C-2/C-3), install (`bash bootstrap.sh` + `uv pip install -r requirements.txt`), authentication, `prepare.py`, `train.py` in the background (the Bash tool's 10-min max would otherwise kill it), and the adapter-on-fresh-BF16-base sanity check via [`adapter_sanity_check.py`](adapter_sanity_check.py).
 
-The prompt **stops for human confirmation before any Tier 2 work** — verify METRIC ≥ 0.5333 (the locked baseline) before telling Claude to begin sweeps from `program.md` § "Tier 2 sweep targets". For the full agent-runtime details (non-root setup, IS_SANDBOX bypass, branch hygiene), see [`docs/autoresearch-handoff.md`](docs/autoresearch-handoff.md).
+The prompt **stops for human confirmation before any Tier 2 work** — verify METRIC ≥ 0.5333 (the locked floor; current best is 0.6000) before telling Claude to begin sweeps from `program.md` § "Tier 2 sweep targets". Note that some Tier 2 work has already landed on `main` (T2.7 reverted, T2.8 kept) — see [`STATUS.md`](STATUS.md) before proposing new sweeps. For the full agent-runtime details (non-root setup, IS_SANDBOX bypass, branch hygiene), see [`docs/autoresearch-handoff.md`](docs/autoresearch-handoff.md).
 
 ## Where to read next
 
@@ -79,20 +79,23 @@ The prompt **stops for human confirmation before any Tier 2 work** — verify ME
 ## Repo layout
 
 ```
-program.md          agent contract
-runpod-setup.md     pod bootstrap (manual)
-prompt.md           autonomous-run kickoff prompt
-BRANCH_NOTES.md     locked config
-FRICTION.md         failure log
-STATUS.md           run log
-results.tsv         per-experiment metric ledger
-train.py            training script (agent edits this)
-prepare.py          one-time setup + eval harness (read-only)
-sanity_check.py     adapter-on-fresh-base check (Validation Contract point 5)
-bootstrap.sh        CUDA-built deps (torch, mamba_ssm) — see runpod-setup.md
+program.md               agent contract
+runpod-setup.md          pod bootstrap (manual)
+prompt.md                autonomous-run kickoff prompt
+BRANCH_NOTES.md          locked config
+FRICTION.md              failure log
+STATUS.md                run log
+results.tsv              per-experiment metric ledger
+train.py                 training script (agent edits this)
+prepare.py               one-time setup + eval harness (read-only)
+adapter_sanity_check.py  adapter-on-fresh-base check (Validation Contract point 5; canonical helper from T1.16)
+sanity_check.py          older sanity-check helper (predates adapter_sanity_check.py; kept for back-compat)
+eval_only.py             quick eval of saved SFT adapter (standalone)
+check_install.py         dependency + GPU verification (run before train.py)
+bootstrap.sh             CUDA-built deps (torch, mamba_ssm) — see runpod-setup.md
 requirements.txt
-data/               train.csv, test.csv, README.md
-docs/               methodology, strategic plan, autoresearch handoff, deep-dives
+data/                    train.csv, test.csv, README.md
+docs/                    methodology, strategic plan, autoresearch handoff, deep-dives
 ```
 
 ## License
