@@ -20,7 +20,7 @@ Strategic anchor for `autoresearch-sft-grpo:main`. A companion strategic plan fo
 
 ## Why this plan exists
 
-`main` holds the proven 0.5333 baseline at commit `c1bb0a6`, produced by:
+`main` is anchored to the locked-floor 0.5333 baseline at commit `c1bb0a6` (current best on `main`: 0.6000 at T2.8 / `c4a9d1c` — see `STATUS.md` for the latest run). The locked baseline was produced by:
 
 - `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16` in plain BF16 (no quantization)
 - SFT-only training (GRPO punted; see `FRICTION.md` F-002)
@@ -61,7 +61,7 @@ Reverting any of these locks is a research bet that needs its own branch and its
 
 ## Acceptance bar for changes on `main`
 
-Any commit that touches `train.py` logic must produce METRIC ≥ 0.5333 on the validation set, recorded in `results.tsv` with a non-empty description. Regressions get reverted, not patched on top — see `program.md` § Branch Hygiene.
+Any commit that touches `train.py` logic must produce METRIC ≥ 0.5333 (the locked floor) on the validation set, recorded in `results.tsv` with a non-empty description. Once a higher post-T1 best is established (currently 0.6000 at T2.8), the de-facto bar for new Tier 2 work is the current best, not the floor — but the floor is what `git revert` returns to. Regressions get reverted, not patched on top — see `program.md` § Branch Hygiene.
 
 ## Relationship to other branches
 

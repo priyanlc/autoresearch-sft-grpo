@@ -68,7 +68,7 @@ claude
 claude --dangerously-skip-permissions
 ```
 
-Then prime Claude by pasting the full kickoff prompt from [`../prompt.md`](../prompt.md). It covers pre-flight, install, training-in-background, and the Validation Contract sanity check, and stops for human confirmation before any Tier 2 work — so you can verify METRIC ≥ 0.5333 (the locked baseline) before granting permission to iterate.
+Then prime Claude by pasting the full kickoff prompt from [`../prompt.md`](../prompt.md). It covers pre-flight, install, training-in-background, and the Validation Contract sanity check, and stops for human confirmation before any Tier 2 work — so you can verify METRIC ≥ 0.5333 (the locked floor; current best on `main` is 0.6000 at T2.8) before granting permission to iterate. Note that some Tier 2 has already landed on `main` (T2.7 reverted, T2.8 kept), so beating 0.5333 still requires explicit go-ahead before new sweeps.
 
 > **Warning:** `--dangerously-skip-permissions` lets Claude run any command without confirmation. Use only on disposable pods with no sensitive data.
 

@@ -26,6 +26,16 @@ Block template (per program.md):
 End-of-session summary blocks go at the very top under the heading `### Session Summary YYYY-MM-DD`.
 -->
 
+### 2026-05-09 — T1.24 stale METRIC wording sweep across remaining docs
+
+- **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged.
+- **Experiments since last status:** 0 (documentation-only).
+- **What was tried:** extended the T1.20/T1.22 "locked floor 0.5333 / current best 0.6000" framing into the four remaining docs. Updated `runpod-setup.md` (the post-train.py "watch for METRIC" sentence), `docs/autoresearch-handoff.md` (the regression-bar sentence in the Claude Code handover section), `docs/bf16-sft-only-plan.md` § "Why this plan exists" and § "Acceptance bar for changes on `main`" (clarified floor=revert target, current best=de-facto bar for new Tier 2), and `README.md` "Where to read next" bullet for `prompt.md`. Historical references in `docs/fast-path-and-cache.md` ("0.5333-baseline session 2026-04-06") left as-is — timestamped events, not current-state claims. **Threshold unchanged at 0.5333**; agent regression-detection behaviour preserved.
+- **Next:** T1.25 (program.md chronology table fill-in + regression-bar phrasing).
+- **Blockers:** none.
+
+---
+
 ### 2026-05-09 — T1.23 train.py line-number citation sweep (T1.7a-style refresh)
 
 - **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged.

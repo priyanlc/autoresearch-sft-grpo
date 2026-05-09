@@ -99,7 +99,7 @@ This downloads ~60 GB of BF16 weights to `~/.cache/huggingface/`. First time onl
 python train.py
 ```
 
-Watch for `METRIC: 0.XXXX` at the end. The locked-baseline number is **0.5333** — see [`BRANCH_NOTES.md`](BRANCH_NOTES.md) for the full configuration. GRPO is wrapped in a `try/except` that falls back to SFT-only on the known Mamba/MoE+TRL tensor mismatch — that's expected, not a regression (see [`FRICTION.md`](FRICTION.md) F-002).
+Watch for `METRIC: 0.XXXX` at the end. The locked floor is **0.5333** (commit `c1bb0a6`); current best on `main` is **0.6000** (T2.8, `c4a9d1c`) — see [`BRANCH_NOTES.md`](BRANCH_NOTES.md) for the full configuration and [`STATUS.md`](STATUS.md) / [`results.tsv`](results.tsv) for the latest run. GRPO is wrapped in a `try/except` that falls back to SFT-only on the known Mamba/MoE+TRL tensor mismatch — that's expected, not a regression (see [`FRICTION.md`](FRICTION.md) F-002).
 
 The `program.md` Validation Contract requires an adapter-on-fresh-BF16-base sanity check at every Tier transition — see [`program.md`](program.md) § Validation Contract, point 5, for the snippet.
 

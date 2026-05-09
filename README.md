@@ -72,7 +72,7 @@ The prompt **stops for human confirmation before any Tier 2 work** — verify ME
 - [`docs/methodology.md`](docs/methodology.md) — the 8-artefact autoresearch methodology that frames the loop.
 - [`docs/bf16-sft-only-plan.md`](docs/bf16-sft-only-plan.md) — strategic plan for `main` (what's locked vs parameterizable).
 - [`docs/autoresearch-handoff.md`](docs/autoresearch-handoff.md) — handing the pod over to autonomous Claude Code (non-root user, IS_SANDBOX workaround).
-- [`prompt.md`](prompt.md) — the autonomous-run kickoff prompt itself; paste into Claude Code on a freshly-bootstrapped pod to reproduce the locked 0.5333 baseline end-to-end before starting Tier 2.
+- [`prompt.md`](prompt.md) — the autonomous-run kickoff prompt itself; paste into Claude Code on a freshly-bootstrapped pod to reproduce the locked 0.5333 floor end-to-end before starting new Tier 2 sweeps. Some Tier 2 has already landed on `main` (T2.7 reverted, T2.8 kept; current best 0.6000) — see [`STATUS.md`](STATUS.md).
 - [`docs/fast-path-and-cache.md`](docs/fast-path-and-cache.md) — technical deep-dive on the Mamba cache workaround.
 - [`data/README.md`](data/README.md) — data provenance and CC BY 4.0 attribution.
 
