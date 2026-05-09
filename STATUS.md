@@ -26,6 +26,16 @@ Block template (per program.md):
 End-of-session summary blocks go at the very top under the heading `### Session Summary YYYY-MM-DD`.
 -->
 
+### 2026-05-09 — T1.25 program.md Tier 1 chronology fill-in + regression-bar reframe
+
+- **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged.
+- **Experiments since last status:** 0 (documentation-only).
+- **What was tried:** added eight chronology rows to `program.md` § "Tier 1 changes — chronology" (T1.18–T1.25). Reworded the regression-bar paragraph in § "Validation Contract": dropped the now-stale "before Tier 2 starts" qualifier, kept the locked floor 0.5333 as the revert target, added the current-best-on-main 0.6000 as the de-facto bar for new Tier 2 sweeps, and clarified the inconclusive zone (above floor, below current best). Reconciled T1.8b status — its post-T1 regression-run intent was effectively satisfied by T1.16's 2026-05-07 baseline restoration; the PENDING marker is left as a methodological artefact (the run was not framed *as* T1.8b at the time). **Threshold unchanged at 0.5333**; agent regression-detection behaviour preserved.
+- **Next:** none queued. With T1.20–T1.25 the post-T2.8 documentation surface is consistent.
+- **Blockers:** none.
+
+---
+
 ### 2026-05-09 — T1.24 stale METRIC wording sweep across remaining docs
 
 - **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged.

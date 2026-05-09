@@ -68,8 +68,16 @@ If any check hits a "neither expected outcome" branch, **STOP and add a `FRICTIO
 | T1.15 | Log F-010 (hf_xet worker→main thread deadlock during weights download). Workaround: `unset HF_XET_HIGH_PERFORMANCE` before training, keep `HF_HUB_ENABLE_HF_TRANSFER=1`. Not yet promoted into setup docs (per F-010 § notes — wait for second reproduction). | Landed 2026-05-07 |
 | T1.16 | Post-T1.15 baseline-restoration run: METRIC 0.5667 on fresh A100 80GB pod (+0.0334 vs c1bb0a6). Adapter sanity check on fresh BF16 base passed. Heartbeat block + Session Summary 2026-05-07 prepended to STATUS.md; first row appended to results.tsv; new `adapter_sanity_check.py` helper script added. | Landed 2026-05-07 |
 | T1.17 | Add `hf_transfer` to `requirements.txt` (closes F-008) + log cost/impact of the `use_cache=False` workaround in F-001 (eval ~10 min → ~3 h ≈ 18×, GRPO rollout ~1 min → ~30 min, run ~1.5 h → ~4.5 h ≈ 3×; quantifies what F-001 actually costs and how it ties into F-002 GRPO economics). | Landed 2026-05-07 |
+| T1.18 | Capture T2.7 run results — METRIC 0.5333 (regression vs T1.16 0.5667). STATUS.md heartbeat + results.tsv row appended. T2.7 reverted per branch hygiene "revert on regression". | Landed 2026-05-07 |
+| T1.19 | Capture T2.8 run results — METRIC 0.6000 (≥ T1.16 0.5667; the F-011 dynamic-CoT regex fix produced gravity 1/5 → 5/5). STATUS.md heartbeat + Session Summary + results.tsv row + new F-012 (adapter_sanity_check.py hung). | Landed 2026-05-07 |
+| T1.20 | README.md doc-only refresh: headline METRIC 0.5333 → 0.6000 with locked-floor pointer; sanity-check refs repointed to canonical `adapter_sanity_check.py`; agent-handover regression-bar reworded; Tier 2 progress note added; repo-layout block extended. | Landed 2026-05-09 |
+| T1.21 | Deduplicate sanity-check helpers — drop older `sanity_check.py` (predates T1.16); keep canonical `adapter_sanity_check.py`. | Landed 2026-05-09 |
+| T1.22 | Sync `prompt.md` regression-bar wording with the post-T2.8 README. Threshold unchanged at 0.5333; agent behaviour preserved. | Landed 2026-05-09 |
+| T1.23 | `train.py` line-number citation sweep across docs (T1.7a-style). T2.8's `_build_dynamic_cot` additions shifted ~9 lines in the canonical patch locations; updated `:386 → :398`, `:536 → :545`, `:511 → :520`, `:383 → :392`, plus block ranges. | Landed 2026-05-09 |
+| T1.24 | Stale METRIC wording sweep across remaining docs (`runpod-setup.md`, `docs/autoresearch-handoff.md`, `docs/bf16-sft-only-plan.md`, `README.md` "Where to read next"). Floor 0.5333 / current 0.6000 framing applied uniformly. | Landed 2026-05-09 |
+| T1.25 | program.md Tier 1 chronology fill-in (T1.18..T1.24 rows) + regression-bar phrasing update ("before Tier 2 starts" → floor=revert target / current=de-facto bar for new Tier 2). T1.8b status reconciled — effectively satisfied by T1.16 baseline-restoration run on a fresh A100 80GB pod. | Landed 2026-05-09 |
 
-T1.1..T1.7 made no `train.py` logic changes (T1.7 is comment-only). T1.3a/T1.7a/T1.9/T1.10 are all doc/config corrections that touch no `train.py` logic either. The regression risk for T1.8b is therefore near-zero, but full methodology compliance still requires it.
+T1.1..T1.7 made no `train.py` logic changes (T1.7 is comment-only). T1.3a/T1.7a/T1.9/T1.10/T1.20/T1.21/T1.22/T1.23/T1.24/T1.25 are all doc/config corrections that touch no `train.py` logic either. T1.8b's "post-T1 regression run" was effectively satisfied by T1.16, which produced METRIC 0.5667 on a fresh A100 80GB pod after the T1.14 dep restoration — the original "prove the methodology assimilation didn't break anything" intent is met. The PENDING marker on T1.8b is preserved as a methodological artefact: the run wasn't framed *as* T1.8b at the time.
 
 ## Goal
 
@@ -249,7 +257,7 @@ Plus, **once per Tier transition** (not every run, too expensive):
 
 5. **Adapter-on-fresh-BF16-base sanity check** — load adapter onto a fresh BF16 base from a *separate Python process* (not the same process that just trained) and verify a sample inference works. This is the actual scoring deployment path; most likely silent-break point. Log result in `FRICTION.md` if it fails, even if the run otherwise produced a METRIC.
 
-**Regression bar:** post-T1 SFT-only METRIC ≥ pre-T1 SFT-only METRIC (0.5333) before Tier 2 starts. Tier 1 should be neutral or positive; if negative, identify which T1.x caused it before adding more variables.
+**Regression bar:** SFT-only METRIC ≥ locked floor 0.5333 (commit `c1bb0a6`) on every run that touches `train.py` logic. The locked floor is the revert target — `git revert` returns to it. The current best on `main` is the de-facto bar for *new* Tier 2 sweeps (currently 0.6000 at T2.8, `c4a9d1c` — see `STATUS.md` and `results.tsv`); a sweep that lands above the floor but below the current best is an inconclusive run, not a regression, but it does not raise the de-facto bar. If a run regresses below the floor, identify which T-id caused it before adding more variables.
 
 ## Tips
 
