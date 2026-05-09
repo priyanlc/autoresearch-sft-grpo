@@ -89,7 +89,6 @@ results.tsv              per-experiment metric ledger
 train.py                 training script (agent edits this)
 prepare.py               one-time setup + eval harness (read-only)
 adapter_sanity_check.py  adapter-on-fresh-base check (Validation Contract point 5; canonical helper from T1.16)
-sanity_check.py          older sanity-check helper (predates adapter_sanity_check.py; kept for back-compat)
 eval_only.py             quick eval of saved SFT adapter (standalone)
 check_install.py         dependency + GPU verification (run before train.py)
 bootstrap.sh             CUDA-built deps (torch, mamba_ssm) — see runpod-setup.md

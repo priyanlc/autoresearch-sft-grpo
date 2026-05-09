@@ -26,6 +26,16 @@ Block template (per program.md):
 End-of-session summary blocks go at the very top under the heading `### Session Summary YYYY-MM-DD`.
 -->
 
+### 2026-05-09 — T1.21 Deduplicate sanity-check helpers (closes T1.20 follow-up)
+
+- **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged.
+- **Experiments since last status:** 0 (documentation/cleanup-only).
+- **What was tried:** removed `sanity_check.py` (older, May 6); kept `adapter_sanity_check.py` (canonical helper from T1.16, referenced by program.md § Validation Contract item 5 and FRICTION F-012). Verified no external references — the only mentions of `sanity_check.py` outside its own file were in the T1.20 README repo-layout block (now removed). Net effect: **neutral** on METRIC by construction. One open follow-up from T1.20 remains: prompt.md regression-bar wording sync.
+- **Next:** T1.22 (prompt.md wording sync).
+- **Blockers:** none.
+
+---
+
 ### 2026-05-09 — T1.20 README.md doc-only refresh (no train.py logic change)
 
 - **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged by this T-id.
