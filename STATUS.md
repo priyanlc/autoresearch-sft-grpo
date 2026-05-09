@@ -26,6 +26,16 @@ Block template (per program.md):
 End-of-session summary blocks go at the very top under the heading `### Session Summary YYYY-MM-DD`.
 -->
 
+### 2026-05-09 — T1.23 train.py line-number citation sweep (T1.7a-style refresh)
+
+- **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged.
+- **Experiments since last status:** 0 (documentation/code-comment-only).
+- **What was tried:** swept all `train.py:NNN` citations across docs and code to match the post-T2.8 line numbers. T2.8's `_build_dynamic_cot` additions shifted the canonical patch lines by ~9. Mappings: `:386 → :398` (Mamba fast-path disable), `:536 → :545` (`use_cache=False` before eval), `:511 → :520` (GRPO `try:` line), `:383 → :392` (`torch_dtype=bfloat16`), `:380-385 → :388-394` (model load block), `:511-528 / :506-523 → :520-540` (GRPO block ranges), `:386-389 → :395-398` (fast-path disable block), and the FRICTION-side "USE_COT used at line 156 → 165" pointer. Files swept: `BRANCH_NOTES.md`, `program.md`, `prompt.md`, `FRICTION.md`, `runpod-setup.md`, `check_install.py`, `adapter_sanity_check.py`, `docs/fast-path-and-cache.md`, `docs/bf16-sft-only-plan.md`. STATUS.md heartbeat blocks (e.g., the 2026-05-07 T1.16 reflection citing `train.py:386 / :536`) left untouched per the append-only convention — those citations were correct on the date the entry was written.
+- **Next:** T1.24 (METRIC wording sweep), T1.25 (program.md chronology + regression-bar phrasing).
+- **Blockers:** none.
+
+---
+
 ### 2026-05-09 — T1.22 prompt.md regression-bar wording sync (closes second T1.20 follow-up)
 
 - **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged.

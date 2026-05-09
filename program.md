@@ -4,7 +4,7 @@
 
 ## Active Mode (as of 2026-05-04): BF16 SFT-only on `main`
 
-`main` is the parent-of-branches reference. The active mode is **SFT-only**, with GRPO wrapped in a `try/except` block (`train.py:511`) that gracefully falls back to the SFT adapter when the known Mamba/MoE+TRL tensor-mismatch crash fires (`FRICTION.md` F-002). Do not flip the GRPO path to mandatory; do not enable 4-bit/FP8/NVFP4 quantization on `main` — those are research bets that need their own branches (see `nvfp4-blackwell` for the NVFP4 worked example).
+`main` is the parent-of-branches reference. The active mode is **SFT-only**, with GRPO wrapped in a `try/except` block (`train.py:520`) that gracefully falls back to the SFT adapter when the known Mamba/MoE+TRL tensor-mismatch crash fires (`FRICTION.md` F-002). Do not flip the GRPO path to mandatory; do not enable 4-bit/FP8/NVFP4 quantization on `main` — those are research bets that need their own branches (see `nvfp4-blackwell` for the NVFP4 worked example).
 
 ### Preconditions (the human handles these before you start)
 
@@ -234,7 +234,7 @@ This is the section the human reads first when returning to the loop.
 - **Commit message prefix.** Format: `T1.1: <one-line summary>` so `git log --oneline` matches the tier table.
 - **Revert, don't fix-forward, on regressions.** If a Tier 2 experiment hurts METRIC, `git revert` it rather than patching on top — keeps the experiment record honest.
 - **`BRANCH_NOTES.md` gets a per-tier section** so anyone reading the branch later sees the chronology and which T-IDs landed.
-- **Co-existence smoke test.** GRPO smoke run is expected to crash; that's F-002, not a regression. `main` has no `SKIP_GRPO` flag — the standing `try/except` block at `train.py:511` IS the smoke harness, and every `python train.py` exercises it for free.
+- **Co-existence smoke test.** GRPO smoke run is expected to crash; that's F-002, not a regression. `main` has no `SKIP_GRPO` flag — the standing `try/except` block at `train.py:520` IS the smoke harness, and every `python train.py` exercises it for free.
 
 ## Validation Contract (every Tier transition)
 
@@ -271,8 +271,8 @@ See [`BRANCH_NOTES.md`](BRANCH_NOTES.md) for the locked configuration table, har
 
 | Location | Patch | Defends against |
 |---|---|---|
-| `train.py:386` | Mamba fast-path disable: loops `sys.modules` for `modeling_nemotron_h` and sets `is_fast_path_available = False` | F-001. Forces pure-PyTorch math even where the fused CUDA kernels would otherwise run. Pairs with the `use_cache=False` patch below. |
-| `train.py:536` | `model.config.use_cache = False` before eval | F-001. Prevents generation from touching the broken `HybridMambaAttentionDynamicCache`. |
+| `train.py:398` | Mamba fast-path disable: loops `sys.modules` for `modeling_nemotron_h` and sets `is_fast_path_available = False` | F-001. Forces pure-PyTorch math even where the fused CUDA kernels would otherwise run. Pairs with the `use_cache=False` patch below. |
+| `train.py:545` | `model.config.use_cache = False` before eval | F-001. Prevents generation from touching the broken `HybridMambaAttentionDynamicCache`. |
 
 These are **redundant defenses, not duplicates** — both are needed. The fast path won't even be selected if `use_cache=False`, but if `use_cache=True` is accidentally re-enabled somewhere downstream and the fast-path disable is removed, you'd hit F-001 from a different angle. See [`docs/fast-path-and-cache.md`](docs/fast-path-and-cache.md) for the full mechanical treatment.
 

@@ -41,7 +41,7 @@ def main():
     print('\nModel-specific:')
     all_ok &= check('mamba_ssm')
     # causal_conv1d is REQUIRED at install time even though the runtime fast
-    # path is force-disabled by train.py:386 — see FRICTION F-009 and T1.14.
+    # path is force-disabled by train.py:398 — see FRICTION F-009 and T1.14.
     # transformers' AST-level static check_imports() rejects the modeling
     # file without it, before train.py's runtime workaround can ever apply.
     all_ok &= check('causal_conv1d')

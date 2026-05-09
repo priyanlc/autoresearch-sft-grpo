@@ -56,7 +56,7 @@ Reverting any of these locks is a research bet that needs its own branch and its
 
 ## What is explicitly punted
 
-- **GRPO of any flavour** — deferred to a dedicated branch when TRL has stable Mamba/MoE support; do not re-enable on `main`. The standing `try/except` around `GRPOTrainer.train()` (`train.py:506–523`) is the smoke harness, not a regression.
+- **GRPO of any flavour** — deferred to a dedicated branch when TRL has stable Mamba/MoE support; do not re-enable on `main`. The standing `try/except` around `GRPOTrainer.train()` (`train.py:520–540`) is the smoke harness, not a regression.
 - **4-bit, FP8, NVFP4** — each gets its own branch. See `nvfp4-blackwell` for the NVFP4 worked example.
 
 ## Acceptance bar for changes on `main`

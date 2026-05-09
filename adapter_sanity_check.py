@@ -8,8 +8,8 @@ Python process* (not the same process that just trained) and verify a
 sample inference works. This is the actual scoring deployment path; most
 likely silent-break point."
 
-Reference load pattern: train.py:379-385 (model load) + :386 (fast-path
-disable, F-001) + :536 (use_cache=False, F-001).
+Reference load pattern: train.py:388-394 (model load) + :398 (fast-path
+disable, F-001) + :545 (use_cache=False, F-001).
 """
 
 import os
@@ -55,7 +55,7 @@ def main():
         torch_dtype=torch.bfloat16,
     )
 
-    # F-001 defenses — same as train.py:386, :536.
+    # F-001 defenses — same as train.py:398, :545.
     for name, mod in sys.modules.items():
         if 'modeling_nemotron_h' in name:
             mod.is_fast_path_available = False

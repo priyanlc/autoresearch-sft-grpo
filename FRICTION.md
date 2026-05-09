@@ -168,7 +168,7 @@ Copy this block for each new entry. **Newer entries go at the top of the Entries
   - Read transformers 4.51.3 `dynamic_module_utils.py:170-220` directly → confirmed AST walk is unconditional; `check_imports` cannot honour `if is_*_available()` guards.
   - Inspected cached `modeling_nemotron_h.py` (snapshot `cbd3fa9f`) → confirmed conditional import is present but ineffective against `check_imports`.
 - **final state:** resolved by T1.14 (Option 1).
-  - **Resolution:** Restored `causal_conv1d` as a hard install-time dep across `requirements.txt`, `bootstrap.sh`, `check_install.py`, `prompt.md`, `program.md` (T1.9 row marked superseded; new T1.14 row added), `BRANCH_NOTES.md`, `runpod-setup.md`, and `docs/fast-path-and-cache.md`. The `train.py:386` runtime fast-path disable still applies, so the package is dead code at execution time — it just needs to be present so transformers' AST scanner accepts the modeling file. No behavioural change vs the locked baseline; F-001's defensive posture is unchanged.
+  - **Resolution:** Restored `causal_conv1d` as a hard install-time dep across `requirements.txt`, `bootstrap.sh`, `check_install.py`, `prompt.md`, `program.md` (T1.9 row marked superseded; new T1.14 row added), `BRANCH_NOTES.md`, `runpod-setup.md`, and `docs/fast-path-and-cache.md`. The `train.py:398` runtime fast-path disable still applies, so the package is dead code at execution time — it just needs to be present so transformers' AST scanner accepts the modeling file. No behavioural change vs the locked baseline; F-001's defensive posture is unchanged.
   - **Lesson:** "Conditional import handles absence" is true for the Python interpreter at runtime but false for transformers' dynamic-module loader, which does AST-level static import checking *before* the conditional guard ever evaluates. Future audits should treat any "this dep is conditional" claim as suspect when the file in question is loaded via `trust_remote_code=True`.
 
 ### F-008 — `prepare.py` AutoTokenizer fails with "Unrecognized model" when `HF_HUB_ENABLE_HF_TRANSFER=1` is set without the `hf_transfer` package
@@ -275,7 +275,7 @@ Copy this block for each new entry. **Newer entries go at the top of the Entries
   <response ends without emitting \boxed{}>
   ```
 
-- **hypothesized root cause:** Eval uses `enable_thinking=True` so the model fills `<think>` with native reasoning. Without SFT teaching the think→`\boxed{}` pattern, the model exhausts its budget on thinking and never closes with a boxed answer. SFT with `USE_COT=True` (`train.py:81`, used at line 156) injects static CoT templates inside `<think>` followed by `\boxed{}`, teaching the closing pattern.
+- **hypothesized root cause:** Eval uses `enable_thinking=True` so the model fills `<think>` with native reasoning. Without SFT teaching the think→`\boxed{}` pattern, the model exhausts its budget on thinking and never closes with a boxed answer. SFT with `USE_COT=True` (`train.py:81`, used at line 165) injects static CoT templates inside `<think>` followed by `\boxed{}`, teaching the closing pattern.
 - **attempts:**
   - `USE_COT=False` on 50 samples/type → METRIC 0.1667 (no boxed answers extracted).
   - `USE_COT=True` on 200 samples/type → METRIC 0.5333.
@@ -290,7 +290,7 @@ Copy this block for each new entry. **Newer entries go at the top of the Entries
 - **hypothesized root cause:** The Reasoning Challenge requires precise arithmetic and string manipulation (gravity decimals, bit_ops binary, cipher characters). 4-bit weight noise corrupts the rule-induction step. Master-weight quantization paths that work for general SFT do not preserve task-relevant precision here.
 - **attempts:**
   - `load_in_4bit=True` with BitsAndBytes quant config → METRIC 0.1333.
-  - Reverted to plain `torch_dtype=torch.bfloat16` (`train.py:383`) → METRIC 0.5333.
+  - Reverted to plain `torch_dtype=torch.bfloat16` (`train.py:392`) → METRIC 0.5333.
 - **final state:** resolved (BF16 is the locked configuration; see `BRANCH_NOTES.md`).
 - **notes:** BF16 is the parent-of-branches dtype for `main`. The `nvfp4-blackwell` branch demonstrates a different quantization-during-training story (master weights kept) where this F-003 lesson does not directly apply; that's its own research bet.
 
@@ -312,7 +312,7 @@ Copy this block for each new entry. **Newer entries go at the top of the Entries
   Compounded by F-001: even if the tensor mismatch were fixed, each GRPO step would take ~30 min without a working KV cache (generation is O(n²)), making GRPO infeasible on `main` regardless.
 
 - **attempts:**
-  - try/except around `grpo_trainer.train()` so SFT-only completes (`train.py:511-528`) → worked: SFT adapter is preserved; GRPO failure is non-fatal.
+  - try/except around `grpo_trainer.train()` so SFT-only completes (`train.py:520-540`) → worked: SFT adapter is preserved; GRPO failure is non-fatal.
   - Pursuing TRL upgrade or Unsloth GRPOTrainer → not attempted on `main`; deferred to a future branch.
 - **final state:** punted — SFT-only is the documented active mode for `main`.
 - **notes:** `train.py` prints a diagnosis block on this exception (lines 513-523) listing four candidate fixes. Reading the diagnosis is the first step for anyone re-attempting GRPO. Do not enable GRPO as mandatory on `main`; the standing try/except is the smoke harness, not a regression.
@@ -333,7 +333,7 @@ Copy this block for each new entry. **Newer entries go at the top of the Entries
 - **hypothesized root cause:** `~/.cache/huggingface/modules/.../modeling_nemotron_h.py` ships with several latent bugs in the hybrid cache class. Hits any code path that touches the cache (generation with `use_cache=True`, GRPO rollout).
 - **attempts:**
   - Patch `modeling_nemotron_h.py` in place (`conv_dim` 4096→6144, `conv_kernel_size` attribute, `.device` access fixes) → worked for some paths but did not unblock GRPO.
-  - Set `model.config.use_cache = False` before `evaluate_model(...)` (`train.py:536`) → worked for SFT eval; eval is slow (~3 hours for 30 samples) without cache but produces a correct METRIC.
+  - Set `model.config.use_cache = False` before `evaluate_model(...)` (`train.py:545`) → worked for SFT eval; eval is slow (~3 hours for 30 samples) without cache but produces a correct METRIC.
 - **final state:** worked-around (cache disabled at eval; GRPO still blocked, see F-002).
 - **notes:** The in-place edit to the HF cache module is per-pod; clearing the `transformers_modules` cache wipes it. Re-run the same edits or re-derive on each fresh pod. Long term, an upstream PR to the model card is the real fix.
 
