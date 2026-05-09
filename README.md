@@ -26,6 +26,14 @@ python train.py                      # ~4–5 hours; emits "METRIC: 0.XXXX" at t
 
 For an **unattended agent run** instead of the manual flow above, see [Claude Code agent — install and handover](#claude-code-agent--install-and-handover) below.
 
+## Tiers
+
+Work is tracked in three tiers (formal definitions in [`docs/methodology.md`](docs/methodology.md); commit prefixes `T1.x` / `T2.x` / `T3.x`):
+
+- **Tier 1** — correctness / cleanup. Doc fixes, config corrections, regression-restoration runs. No `train.py` logic change (or comment-only).
+- **Tier 2** — research sweeps. One ~5-hour `train.py` experiment per commit, sweeping a single axis (e.g. tweak `SFT_SAMPLES_PER_TYPE`, fix a CoT regex, vary reward weights) to see if METRIC improves. Revert on regression. Recent on `main`: T2.7 reverted; T2.8 raised METRIC to 0.6000. Candidate axes in [`program.md`](program.md) § "Tier 2 sweep targets".
+- **Tier 3** — scaffolding-only for bigger bets (e.g. GRPO re-enabled). Bodies not implemented until promoted to Tier 2.
+
 ## Claude Code agent — install and handover
 
 Hand the pod over to Claude Code (or any agent in unattended mode) to reproduce the baseline and iterate on Tier 2 sweeps without you in the loop.

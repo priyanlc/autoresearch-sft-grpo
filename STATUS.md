@@ -26,6 +26,16 @@ Block template (per program.md):
 End-of-session summary blocks go at the very top under the heading `### Session Summary YYYY-MM-DD`.
 -->
 
+### 2026-05-09 — T1.27 README.md adds "Tiers" definitions section
+
+- **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged.
+- **Experiments since last status:** 0 (documentation-only).
+- **What was tried:** added a six-line "## Tiers" section to `README.md`, placed between the Quickstart and the agent-handover section so that "Tier 2 sweep" (referenced in the handover paragraph) is defined before it is used. Mirrors `docs/methodology.md` § "Tiered work — T1 / T2 / T3": commit-prefix conventions (`T1.x` / `T2.x` / `T3.x`), one-line purpose per tier, recent T2.7 (reverted) / T2.8 (METRIC 0.6000) outcomes as a concrete Tier-2 example, pointer to `program.md` § "Tier 2 sweep targets" for candidate axes. Triggered by user feedback that "Tier 2 sweep" read as undefined jargon in the handover section.
+- **Next:** none queued.
+- **Blockers:** none.
+
+---
+
 ### 2026-05-09 — T1.26 README.md handover-section simplification
 
 - **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged.
