@@ -26,6 +26,19 @@ Block template (per program.md):
 End-of-session summary blocks go at the very top under the heading `### Session Summary YYYY-MM-DD`.
 -->
 
+### 2026-05-09 — T1.28 surface bootstrap.sh in README Quickstart + finish T1.23 line-number sweep
+
+- **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged.
+- **Experiments since last status:** 0 (documentation-only).
+- **What was tried:** two related fixes in one commit:
+  - `README.md` Quickstart: added `bash bootstrap.sh` line immediately before `uv pip install -r requirements.txt`, matching the canonical pair documented in `runpod-setup.md` § 2 and `prompt.md` step 2. Reframed the trailing comment from "if mamba_ssm fails" (misleading — implied fallback) to "CUDA-built deps … see script header for why these can't go in requirements.txt" (accurate — bootstrap.sh is the canonical install half, not a fallback).
+  - `train.py:386 → train.py:398` citations missed by T1.23's `*.md` / `*.py` glob: `bootstrap.sh:31` (1 occurrence) and `requirements.txt` lines 20/23/30 (3 occurrences). T1.23 didn't include `*.sh` / `*.txt` files; that's now closed. After this commit the only remaining `:386` references in the repo are the intentional historical mention at `STATUS.md:188` (T1.16 reflection, append-only) and the T1.23 heartbeat itself at `STATUS.md:73` (which documents the mapping).
+- **Triggered by:** user question "is the bootstrap.sh useful, why is it not mentioned in the readme.md?" — surfaced both the README/runpod-setup.md drift and the missed citations.
+- **Next:** none queued.
+- **Blockers:** none.
+
+---
+
 ### 2026-05-09 — T1.27 README.md adds "Tiers" definitions section
 
 - **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged.

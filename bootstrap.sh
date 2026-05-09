@@ -28,7 +28,7 @@ uv pip install 'torch>=2.2.0' --index-url https://download.pytorch.org/whl/cu121
 uv pip install ninja packaging wheel setuptools
 
 # Step 3 — source-built CUDA packages, --no-build-isolation.
-# Both must be installed even though train.py:386 force-disables the Mamba
+# Both must be installed even though train.py:398 force-disables the Mamba
 # fast path: transformers' dynamic-module loader does AST-level static
 # import checking on modeling_nemotron_h.py and refuses to load it if any
 # imported module is missing — including causal_conv1d, whose import sits

@@ -17,7 +17,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 source $HOME/.local/bin/env
 
 uv venv && source .venv/bin/activate
-uv pip install -r requirements.txt   # see runpod-setup.md for the staged install if mamba_ssm fails
+bash bootstrap.sh                    # CUDA-built deps (torch from cu121 CDN, mamba_ssm, causal_conv1d) — see script header for why these can't go in requirements.txt
+uv pip install -r requirements.txt   # everything else
 python prepare.py                    # one-time: downloads the model, builds val_split.json
 python train.py                      # ~4–5 hours; emits "METRIC: 0.XXXX" at the end
 ```
