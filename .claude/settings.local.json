@@ -8,7 +8,18 @@
       "Bash(strace -p 3503 -e trace=write -c)",
       "Bash(timeout 10 cat)",
       "Bash(kill -9 3503)",
-      "Bash(pip show:*)"
+      "Bash(pip show:*)",
+      "Read(//Users/priyanchandrapala/codebase/kaggle/nemotron/projects/autoresearch/input/**)",
+      "Read(//Users/priyanchandrapala/codebase/kaggle/nemotron/**)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(sed -n '60,105p' /Users/priyanchandrapala/codebase/kaggle/nemotron/notebooks/05-autoresearch/autoresearch-sft-grpo/program.md)",
+      "Bash(sed -n '200,260p' /Users/priyanchandrapala/codebase/kaggle/nemotron/notebooks/05-autoresearch/autoresearch-sft-grpo/program.md)",
+      "Bash(sed -n '518,548p' /Users/priyanchandrapala/codebase/kaggle/nemotron/notebooks/05-autoresearch/autoresearch-sft-grpo/train.py)",
+      "Bash(sed -n '395,405p' /Users/priyanchandrapala/codebase/kaggle/nemotron/notebooks/05-autoresearch/autoresearch-sft-grpo/train.py)",
+      "Bash(git remote *)",
+      "Bash(git push *)",
+      "Bash(gh api *)"
     ]
   }
 }

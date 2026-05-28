@@ -23,7 +23,7 @@ import torch
 from datasets import Dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import LoraConfig, get_peft_model, TaskType
-from trl import SFTTrainer, SFTConfig, GRPOTrainer, GRPOConfig
+from trl import SFTTrainer, SFTConfig, GRPOTrainer, GRPOConfig, DataCollatorForCompletionOnlyLM
 
 # Import evaluation harness from prepare.py (read-only)
 from prepare import (
@@ -69,7 +69,8 @@ TARGET_MODULES = 'all-linear'
 BATCH_SIZE = 1
 GRAD_ACCUM = 4
 WARMUP_RATIO = 0.1
-MAX_GRAD_NORM = 1.0
+MAX_GRAD_NORM = 1e9               # Effectively off; LoRA on frozen BF16 doesn't need clipping.
+                                  # All public 0.85+ adapters use 1e9; tight clip kills small LoRA grads.
 
 # Evaluation
 # See FRICTION.md F-005: 128 truncates answers before \boxed{} closes; 256 still cuts off some.
@@ -392,10 +393,8 @@ def main():
         torch_dtype=torch.bfloat16,
     )
 
-    # Disable fast path
-    for name, mod in sys.modules.items():
-        if 'modeling_nemotron_h' in name:
-            mod.is_fast_path_available = False
+    # Mamba fast-path stays ON during SFT (teacher-forced forward doesn't touch the cache;
+    # F-001 only manifests on the autoregressive-decode path). Disabled before eval below.
 
     # Apply LoRA
     lora_config = LoraConfig(
@@ -433,10 +432,43 @@ def main():
         gradient_checkpointing_kwargs={'use_reentrant': False},
     )
 
+    # Assistant-only loss: without this, SFTTrainer(dataset_text_field='text') trains the
+    # model to also reproduce the user prompt tokens, wasting LoRA capacity on prompt
+    # memorisation and diluting the assistant-side signal. Probe the chat template at
+    # runtime to find the boundary string between user content and assistant content; the
+    # collator masks everything up to and including that boundary in the loss.
+    def _detect_response_template():
+        probe_user = 'PROBEUSERCONTENT'
+        probe_asst = 'PROBEASSTCONTENT'
+        probe_msgs = [
+            {'role': 'user', 'content': probe_user},
+            {'role': 'assistant', 'content': probe_asst},
+        ]
+        for kwargs in [{'enable_thinking': True}, {}]:
+            try:
+                text = tokenizer.apply_chat_template(
+                    probe_msgs, tokenize=False, add_generation_prompt=False, **kwargs
+                )
+                u_end = text.find(probe_user) + len(probe_user) if probe_user in text else -1
+                a_start = text.find(probe_asst)
+                if u_end > 0 and a_start > u_end:
+                    return text[u_end:a_start]
+            except Exception:
+                continue
+        return '<|im_start|>assistant\n'  # ChatML fallback
+
+    response_template = _detect_response_template()
+    print(f'[assistant-only loss] response template: {response_template!r}')
+    sft_collator = DataCollatorForCompletionOnlyLM(
+        response_template=response_template,
+        tokenizer=tokenizer,
+    )
+
     sft_trainer = SFTTrainer(
         model=model,
         train_dataset=sft_dataset,
         processing_class=tokenizer,
+        data_collator=sft_collator,
         args=sft_args,
     )
 
@@ -542,7 +574,12 @@ def main():
 
     # ---- Evaluate ----
     # See FRICTION.md F-001: Nemotron HybridMambaAttentionDynamicCache bugs (conv_dim, conv_kernel_size, .device).
-    model.config.use_cache = False  # Nemotron cache has bugs; disable for safety
+    # Redundant defense pair before any autoregressive decode: use_cache=False + Mamba fast-path off.
+    # Both moved here from pre-SFT — fast-path is safe during teacher-forced training.
+    model.config.use_cache = False
+    for name, mod in sys.modules.items():
+        if 'modeling_nemotron_h' in name:
+            mod.is_fast_path_available = False
     print('\nEvaluating...')
     overall, by_type = evaluate_model(
         model, tokenizer, val_data,
