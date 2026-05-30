@@ -26,6 +26,25 @@ Block template (per program.md):
 End-of-session summary blocks go at the very top under the heading `### Session Summary YYYY-MM-DD`.
 -->
 
+### 2026-05-30 — T2.11 scaffolding LANDED: cipher 77-word vocab + bit_ops per-bit walk + packing=True (sweep pending)
+
+- **Current best METRIC:** 0.6667 (T2.10) — unchanged. T2.11 is code-landed, sweep not yet run.
+- **Experiments since last status:** 0 (code change only).
+- **What was tried:** Three coordinated changes in one commit, all surviving F-017's "vLLM dead on cu121" outcome by being purely targeted-METRIC moves (no eval-infra dependency). (1) **Cipher 77-word vocab prior** (Gap B from `nemotron-vault/wiki/07-train-py-gap-analysis.md`): new `_CIPHER_VOCAB` extracted from train.csv at module load (~77 unique words, empirically matches konbu17's claim per `nemotron-vault/wiki/06-public-notebooks-techniques-survey.md` Technique #2). New `_augment_cipher_prompt(prompt)` injects the vocab as a partial-mapping hint at the end of cipher prompts; applied at both SFT (`build_sft_text`) and eval (val_data loop in `main()`) so the prompt distribution matches. Direct attack on T2.10's cipher 0/5 → 1/5 partial-decode failure mode (model applied substitution correctly but lacked bounded-vocab prior; e.g., produced "knight studies the colorful book" vs gold "dragon follows…"). (2) **bit_ops per-bit boolean-function walk**: new `_find_bit_function(out_bit_idx, examples)` searches in complexity order — constant → identity/NOT of one input bit → pairwise XOR/AND/OR — for the simplest function fitting all examples; new `_build_bit_ops_dynamic_cot(prompt, answer)` runs it for all 8 output bits, applies to the new input, and **self-verifies against the gold answer** before emitting the CoT (returns None on mismatch → falls through to static template, preventing F-011-style garbage). Replaces the static "Comparing input/output bit patterns…" announce in `_build_dynamic_cot`. (3) **packing=True** in SFTConfig: safe now that F-016 reverted `DataCollatorForCompletionOnlyLM`; variable-length puzzle prompts (177-510 chars) pack well; expected ~15-30% SFT speedup with no METRIC effect. Config flags `USE_CIPHER_VOCAB=True` and `USE_BIT_OPS_DYNAMIC_COT=True` default ON for the T2.11 sweep — flip to False for ablation without rolling back code.
+- **Files swept:** `train.py` (config flags + 3 helper functions + `_build_dynamic_cot` bit_ops branch + `build_sft_text` augmentation + main's val_data loop + SFTConfig). No other files touched.
+- **Expected per-category effect:**
+  - cipher 1/5 → **3-5/5** (vocab prior closes the partial-decode failure mode; biggest single expected lever)
+  - bit_ops 2/5 → **3-4/5** (real computation in CoT, same pattern that gave gravity 1/5 → 5/5 at T2.8)
+  - gravity / numeral / unit_conv: ceiling 5/5, no expected change
+  - symbol: unchanged (T2.10's arithmetic branch still in place; opaque-substitution subtype untouched)
+  - **Net METRIC: 0.6667 → 0.73-0.80** (+2-4 samples), with ~3-3.5h SFT (packing speedup) + ~1h eval ≈ ~4h total.
+- **Verification gate:** any METRIC ≥ 0.6667 acceptable (matches T2.8 acceptance rule: ≥ current best on `main`). Per-category attribution: cipher and bit_ops are the only touched code paths; gravity/numeral/unit_conv at the ceiling so any shift there is variance.
+- **Why bundle three axes:** at ~4-4.5h per sweep with no vLLM (F-017) and no F-001 patch, the "one axis at a time" rule is more expensive than the confounding risk. Cipher and bit_ops target different categories and different code paths in `_build_dynamic_cot` — confounding risk is low; per-category breakdown attributes cleanly. `packing=True` is METRIC-neutral by design.
+- **Next:** kick off T2.11 sweep on the live pod. After METRIC lands: if ≥ 0.75, queue T2.12 (warmstart from public 0.86); if 0.70-0.75, queue T2.13 (F-016 proper fix). If < 0.70, investigate per-category before next axis.
+- **Blockers:** none new. F-002 GRPO still try/except'd. F-012 sanity-check hang risk persists for T2.11 adapter. F-017 vLLM-on-cu121 confirmed dead (won't-fix).
+
+---
+
 ### 2026-05-30 — T2.14 verification RESULT: vLLM eval infeasible on the cu121 pin (F-017) — keep USE_VLLM_EVAL=False
 
 - **Current best METRIC:** 0.6667 (T2.10) — unchanged. This entry records a *negative* tooling result, no train.py run.

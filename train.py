@@ -93,6 +93,19 @@ USE_COT = True                    # Teach thinking pattern that eval uses
                                   # Note: with USE_COT=True (50 samples/type), model parroted templates verbatim
                                   # instead of reasoning. Inconclusive if harmful — may improve with more data.
 
+# T2.11 — cipher 77-word vocabulary prior + bit_ops per-bit function walk.
+# Both axes target visible gaps from T2.10 (cipher 1/5, bit_ops 2/5). The
+# cipher fix injects a fixed-vocabulary hint into the user prompt at both
+# SFT and eval time (must match — Gap B from 07-train-py-gap-analysis.md;
+# konbu17 pattern from 06-public-notebooks-techniques-survey.md). The
+# bit_ops fix replaces the static announce template in _build_dynamic_cot
+# with a real per-bit boolean-function search (identity / NOT / XOR / AND /
+# OR / constant) that self-verifies against the gold answer — only emits a
+# dynamic CoT if the discovered function produces the gold (prevents
+# F-011-style garbage CoT).
+USE_CIPHER_VOCAB = True           # Augment cipher prompts with the fixed Alice vocab
+USE_BIT_OPS_DYNAMIC_COT = True    # Per-bit function walk in _build_dynamic_cot
+
 # Output
 OUTPUT_DIR = './adapter'
 
@@ -111,6 +124,152 @@ _COT_BY_TYPE = {
     'symbol': "I need to identify the transformation rules from the examples and apply them to the new equation.",
 }
 _COT_DEFAULT = "Let me analyze the pattern in the given examples and apply it to solve the problem."
+
+
+# ------------------------------------------------------------------
+# T2.11 — cipher vocabulary prior (Gap B from 07-train-py-gap-analysis.md)
+# ------------------------------------------------------------------
+
+def _build_cipher_vocab():
+    """Extract the fixed cipher vocabulary from cipher puzzles in train.csv.
+
+    Empirical observation (konbu17, 06-public-notebooks-techniques-survey.md
+    Technique #2): all cipher puzzles in the competition draw plaintext
+    answers from a fixed ~77-word Alice-in-Wonderland vocabulary. We collect
+    it at module load by reading all cipher-type answers in train.csv — robust
+    to small vocab changes and self-documenting.
+
+    T2.10 evidence pointing here: cipher 0/5 -> 1/5 after the char-by-char
+    walk; remaining failures produced *partial decodes* (e.g. "knight studies
+    the colorful book" vs gold "dragon follows..."). The substitution map
+    is being applied correctly; the model is choosing wrong words because it
+    has no bounded-vocabulary prior. Injecting the vocab in the user prompt
+    provides that prior.
+    """
+    df = pl.read_csv(TRAIN_CSV)
+    df = df.with_columns(
+        pl.col('prompt').map_elements(classify_type, return_dtype=pl.Utf8).alias('qtype')
+    )
+    cipher_answers = df.filter(pl.col('qtype') == 'cipher')['answer'].to_list()
+    words = set()
+    for ans in cipher_answers:
+        for w in str(ans).lower().split():
+            w = w.strip('.,;:!?\'"()[]{}')
+            if w.isalpha() and len(w) >= 2:
+                words.add(w)
+    return sorted(words)
+
+
+# Computed once at module load; ~3 MB CSV read, sub-second.
+_CIPHER_VOCAB = _build_cipher_vocab()
+
+
+def _augment_cipher_prompt(prompt):
+    """Inject the fixed cipher vocabulary hint at the end of a cipher prompt.
+
+    No-op for non-cipher prompts. MUST be called at both SFT (build_sft_text)
+    and eval (val_data prep in main) — the prompt distribution at training
+    and inference must match for the model to learn to use the hint.
+    """
+    if not USE_CIPHER_VOCAB:
+        return prompt
+    if classify_type(prompt) != 'cipher':
+        return prompt
+    vocab_str = ', '.join(_CIPHER_VOCAB)
+    hint = (
+        f'\n\n(The decoded plaintext uses words from this fixed vocabulary, '
+        f'encrypted via the same substitution as the examples above.)\n'
+        f'Vocabulary: {vocab_str}'
+    )
+    return prompt + hint
+
+
+# ------------------------------------------------------------------
+# T2.11 — bit_ops per-bit function search (new dynamic CoT axis)
+# ------------------------------------------------------------------
+
+def _find_bit_function(out_bit_idx, examples):
+    """Find the simplest boolean function over 8 input bits that explains
+    the output bit at position out_bit_idx for ALL examples.
+
+    Tried in order of complexity: constant -> identity/NOT of one input bit
+    -> pairwise XOR/AND/OR of two input bits. Returns (description, evaluator)
+    or None if nothing simple fits.
+    """
+    targets = [int(out[out_bit_idx]) for _, out in examples]
+
+    if all(t == 0 for t in targets):
+        return ('= 0', lambda inp: 0)
+    if all(t == 1 for t in targets):
+        return ('= 1', lambda inp: 1)
+
+    for k in range(8):
+        if all(t == int(inp[k]) for t, (inp, _) in zip(targets, examples)):
+            return (f'= input[{k}]', lambda inp, k=k: int(inp[k]))
+        if all(t == 1 - int(inp[k]) for t, (inp, _) in zip(targets, examples)):
+            return (f'= NOT input[{k}]', lambda inp, k=k: 1 - int(inp[k]))
+
+    for i in range(8):
+        for j in range(i + 1, 8):
+            if all(t == int(inp[i]) ^ int(inp[j]) for t, (inp, _) in zip(targets, examples)):
+                return (f'= input[{i}] XOR input[{j}]',
+                        lambda inp, i=i, j=j: int(inp[i]) ^ int(inp[j]))
+            if all(t == int(inp[i]) & int(inp[j]) for t, (inp, _) in zip(targets, examples)):
+                return (f'= input[{i}] AND input[{j}]',
+                        lambda inp, i=i, j=j: int(inp[i]) & int(inp[j]))
+            if all(t == int(inp[i]) | int(inp[j]) for t, (inp, _) in zip(targets, examples)):
+                return (f'= input[{i}] OR input[{j}]',
+                        lambda inp, i=i, j=j: int(inp[i]) | int(inp[j]))
+
+    return None
+
+
+def _build_bit_ops_dynamic_cot(prompt, answer):
+    """Per-bit boolean-function analysis for bit_ops puzzles (T2.11).
+
+    Pattern: for each of 8 output bits, find the simplest function over input
+    bits that fits all training examples, apply to the new input, verify the
+    result matches the gold answer. Returns a CoT string OR None (fall through
+    to static template — F-011-style "always emit something" garbage is the
+    failure mode we avoid).
+    """
+    import re as _re
+    pairs = _re.findall(r'([01]{8})\s*->\s*([01]{8})', prompt)
+    if len(pairs) < 2:
+        return None
+
+    # The new input is an 8-bit string in the prompt that isn't on the LHS of
+    # any example pair.
+    all_example_inputs = {p[0] for p in pairs}
+    all_eights = _re.findall(r'\b([01]{8})\b', prompt)
+    new_input = None
+    for cand in all_eights:
+        if cand not in all_example_inputs:
+            new_input = cand
+            break
+    if new_input is None:
+        return None
+
+    descriptions = []
+    evaluators = []
+    for k in range(8):
+        result = _find_bit_function(k, pairs)
+        if result is None:
+            return None
+        desc, evaluator = result
+        descriptions.append(f'  bit[{k}] {desc}')
+        evaluators.append(evaluator)
+
+    predicted = ''.join(str(ev(new_input)) for ev in evaluators)
+    if predicted != str(answer).strip():
+        return None
+
+    return (
+        f"Examining each output bit position against the example pairs:\n"
+        + '\n'.join(descriptions)
+        + f"\nApplying to input {new_input}, computing each output bit:\n"
+        + f"output = {predicted}. Answer: {answer}"
+    )
 
 
 def _build_dynamic_cot(qtype, prompt, answer):
@@ -171,6 +330,12 @@ def _build_dynamic_cot(qtype, prompt, answer):
             return (f"Conversion factor = output/input = {out}/{inp} = {factor:.4f}. "
                     f"Apply factor to new input. Answer: {answer}")
     elif qtype == 'bit_ops':
+        # T2.11: per-bit boolean-function search (Gap B-adjacent — same
+        # "show the computation" lesson as cipher/gravity). Self-verifies
+        # against the gold answer; falls through to static if no simple
+        # function fits, preventing F-011-style garbage CoT.
+        if USE_BIT_OPS_DYNAMIC_COT:
+            return _build_bit_ops_dynamic_cot(prompt, answer)
         return (f"Comparing input/output bit patterns to identify the operation "
                 f"(shift, rotate, XOR, AND, OR, NOT, or combinations). Result: {answer}")
     elif qtype == 'symbol':
@@ -216,7 +381,9 @@ def build_sft_text(example, tokenizer):
     via enable_thinking=True handles the <think> block at inference.
     When USE_COT=True, static CoT templates are included in the <think> block.
     """
-    user_msg = example['prompt'] + METRIC_SUFFIX
+    # T2.11: cipher vocab augmentation must match between SFT and eval — see
+    # val_data loop in main() for the eval-side application.
+    user_msg = _augment_cipher_prompt(example['prompt']) + METRIC_SUFFIX
 
     if USE_COT:
         qtype = classify_type(example['prompt'])
@@ -436,6 +603,14 @@ def main():
     print('Preparing training data...')
     sft_dataset, grpo_dataset = load_training_data(tokenizer)
     val_data = load_val_data()
+    # T2.11: cipher prompt augmentation must match between SFT and eval.
+    # build_sft_text applies _augment_cipher_prompt at training time; do the
+    # same to val_data here so the model sees the same prompt distribution at
+    # inference. Mutates val_data in place; safe because load_val_data returns
+    # a fresh list each call.
+    if USE_CIPHER_VOCAB:
+        for ex in val_data:
+            ex['prompt'] = _augment_cipher_prompt(ex['prompt'])
     print(f'SFT: {len(sft_dataset)}, GRPO: {len(grpo_dataset)}, Val: {len(val_data)}')
 
     # Load model
@@ -482,7 +657,9 @@ def main():
         report_to='none',
         dataset_text_field='text',
         max_length=SFT_MAX_SEQ_LEN,
-        packing=False,
+        packing=True,                  # T2.11: safe now that F-016 reverted DataCollatorForCompletionOnlyLM.
+                                       # Variable-length puzzle prompts (177-510 chars) pack well; expect
+                                       # ~15-30% SFT speedup vs packing=False with no METRIC effect.
         gradient_checkpointing=True,
         gradient_checkpointing_kwargs={'use_reentrant': False},
     )
