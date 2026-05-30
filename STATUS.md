@@ -26,6 +26,28 @@ Block template (per program.md):
 End-of-session summary blocks go at the very top under the heading `### Session Summary YYYY-MM-DD`.
 -->
 
+### 2026-05-30 — T1.31 promote F-010 (HF_XET_HIGH_PERFORMANCE) into runpod-setup.md § 5
+
+- **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged. T2.9 (`e41db18`) still pending pod measurement.
+- **Experiments since last status:** 0 (documentation-only).
+- **What was tried:** Added a one-line `[[ -n "${HF_XET_HIGH_PERFORMANCE:-}" ]] && unset HF_XET_HIGH_PERFORMANCE` guard immediately before `python prepare.py` in `runpod-setup.md` § 5, with a short paragraph describing F-010 (`hf_xet` worker→main deadlock during weights download — symptom: wedged ~5 GB `*.incomplete` shard, main thread in `futex_do_wait`). Also flagged the autonomous-Claude-flow gotcha: the unset must be done **inside the tmux session before launching `claude`** so the environment is inherited by the prepare.py invocation that Claude triggers. Updated `FRICTION.md` F-010 § notes to record the preemptive promotion (no second reproduction observed in this session) and the cost-vs-benefit rationale (one-line guard vs ~5 GB partial download recovery). Added chronology rows to `BRANCH_NOTES.md` and `program.md`. **Trigger:** user request after we discussed F-010 as a pre-launch caveat for the `IS_SANDBOX=1 claude --remote-control --dangerously-skip-permissions` autonomous setup. Net effect: **neutral** on METRIC by construction — no `train.py` logic change.
+- **Files swept:** `runpod-setup.md` (§ 5 unset guard + rationale paragraph), `FRICTION.md` (F-010 promotion note), `BRANCH_NOTES.md` (chronology row), `program.md` (chronology table row).
+- **Next:** with F-007 (T1.30) and F-010 (T1.31) both promoted, the only un-promoted setup-doc workarounds are in F-008 (`hf_transfer` install — already closed by T1.17's requirements.txt update) and F-009 (`causal_conv1d` AST check — closed by T1.14 across nine files). No queued setup-doc T1 work remaining.
+- **Blockers:** none.
+
+---
+
+### 2026-05-30 — T1.30 promote F-007 (MooseFS) into runpod-setup.md § 2
+
+- **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged. T2.9 (`e41db18`) still pending pod measurement.
+- **Experiments since last status:** 0 (documentation-only).
+- **What was tried:** Restructured `runpod-setup.md` § 2 ("Create venv and install Python deps") around a new `df -T /workspace` pre-flight that branches into a "standard path" (non-MooseFS) and a "MooseFS path" (RunPod mfs pods). Both paths share the install-uv prelude and the `bash bootstrap.sh` + `uv pip install -r requirements.txt` install commands at the bottom; only the venv location differs (`./.venv` vs `/root/venv-autoresearch` symlinked into `.venv`, with `UV_CACHE_DIR=/root/uv-cache` persisted to `~/.bashrc`). Updated `FRICTION.md` F-007 with the second-reproduction signature observed on this pod (failure on `nvidia_nvjitlink_cu12-12.9.86-...whl`, uv's misleading `UV_HTTP_TIMEOUT` suggestion) and recovery transcript. Added chronology rows to `BRANCH_NOTES.md` and `program.md`. Existing `bootstrap.sh` / `causal_conv1d` rationale prose in § 2 preserved unchanged. **Trigger:** second reproduction of F-007 in this session, meeting the "promote workaround if reproduces a second time" threshold from F-007 § notes (first reproduction was 2026-05-06 on the original pod). Net effect: **neutral** on METRIC by construction — no `train.py` logic change.
+- **Files swept:** `runpod-setup.md` (§ 2 restructure), `FRICTION.md` (F-007 second-reproduction note), `BRANCH_NOTES.md` (chronology row), `program.md` (chronology table row).
+- **Next:** F-010 (`hf_xet` worker→main deadlock) is the remaining un-promoted setup-doc workaround. Per F-010 § notes it's still waiting on a second reproduction before promotion into `runpod-setup.md` § 3. No reproduction observed this session.
+- **Blockers:** none.
+
+---
+
 ### 2026-05-30 — T1.29 doc citation + content sweep after T2.9 fast-path relocation
 
 - **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged. T2.9 (`e41db18`) was committed 2026-05-28 but has not yet been measured on a pod; locked floor remains 0.5333 (`c1bb0a6`).

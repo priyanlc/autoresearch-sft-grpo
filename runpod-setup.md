@@ -35,19 +35,61 @@ The `train.csv` (9,500 puzzles) and `test.csv` (3-row preview) are tracked in th
 
 This repo uses [`uv`](https://docs.astral.sh/uv/) — a fast Rust-based Python package manager and venv tool from Astral. Single binary, `pip`-compatible interface, ~10–100× faster installs.
 
+### Pre-flight: is `/workspace` MooseFS-backed?
+
 ```bash
-# Install uv (one-time, ~5 seconds)
+df -T /workspace
+```
+
+If the **Type** column is `fuse` (typical signature: `mfs#…runpod.net:9421` — most RunPod pods), `/workspace` is MooseFS. Wheel extraction (thousands of small writes + renames + hardlinks per wheel) wedges indefinitely on FUSE/MooseFS; the venv and uv cache **must** live on local overlay disk (e.g. `/root`), not on `/workspace`. Use the **MooseFS path** below. See [`FRICTION.md` F-007](FRICTION.md) for the underlying mechanics.
+
+If the **Type** column shows `ext4`, `overlay`, or similar (non-RunPod cloud, or a local-disk pod), use the **standard path**. The decision branches only on the venv/cache location; the install commands at the end are identical.
+
+### Install uv (both paths)
+
+```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source $HOME/.local/bin/env   # or open a new shell
+```
 
-# Create + activate venv
+### Standard path (non-MooseFS pod)
+
+```bash
+cd <repo>                     # wherever you cloned in Step 1
 uv venv
 source .venv/bin/activate
+```
 
-# Install dependencies
+### MooseFS path (RunPod mfs pods)
+
+Venv at `/root/venv-autoresearch` (local overlay disk). A symlink at `.venv` in the repo keeps `source .venv/bin/activate` working from the repo dir without retraining muscle memory.
+
+```bash
+# 1. Venv and uv cache on local overlay disk
+uv venv /root/venv-autoresearch
+export UV_CACHE_DIR=/root/uv-cache
+echo 'export UV_CACHE_DIR=/root/uv-cache' >> ~/.bashrc   # persist for new shells
+
+# 2. Symlink into the repo so .venv/bin/activate still works
+cd /workspace/autoresearch-sft-grpo
+ln -s /root/venv-autoresearch .venv
+
+# 3. Activate
+source .venv/bin/activate
+```
+
+The HF model cache (~60 GB, downloaded in Step 5) stays on `/workspace` even on MooseFS — large sequential reads/writes are exactly where MooseFS doesn't suffer. Only metadata churn (wheel extraction) is the pain point.
+
+If you see `I/O operation failed during extraction` from uv with a `UV_HTTP_TIMEOUT` hint, you're on a MooseFS pod and missed the pre-flight — uv's timeout suggestion is misleading; the bottleneck is extraction, not download. Switch to the MooseFS path.
+
+### Install dependencies (both paths)
+
+```bash
 bash bootstrap.sh                    # CUDA-built packages (torch, mamba_ssm, build helpers)
 uv pip install -r requirements.txt   # pure-Python deps (transformers, peft, trl, etc.)
 ```
+
+Expected timing on local overlay disk: bootstrap ~2 s, requirements ~10 s. On MooseFS without the workaround: wedges indefinitely.
 
 > Always work inside the venv — no `uv pip install` (or `pip install`) into the system Python.
 
@@ -87,7 +129,10 @@ Should print `All checks passed`. If anything fails, fix it before Step 5 — re
 
 ## 5. Prepare data and validation split
 
+Per [`FRICTION.md` F-010](FRICTION.md), unset `HF_XET_HIGH_PERFORMANCE` before kicking off `prepare.py` — RunPod base images set it at the pod level, and the `hf_xet` worker→main thread deadlock can freeze the weights download partway through (signature: a `~5 GB *.incomplete` shard that never gets renamed; main thread stuck in `futex_do_wait`). `HF_HUB_ENABLE_HF_TRANSFER=1` alone (also pod-set) is sufficient and stable for the download. If you're running Claude Code autonomously, do this **inside the tmux session before launching `claude`** so the unset is inherited.
+
 ```bash
+[[ -n "${HF_XET_HIGH_PERFORMANCE:-}" ]] && unset HF_XET_HIGH_PERFORMANCE
 python prepare.py   # downloads the model + creates data/val_split.json
 ```
 
