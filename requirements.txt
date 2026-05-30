@@ -44,3 +44,16 @@ sentencepiece
 
 # Data
 polars>=0.20.0
+
+# Eval (T2.14 / Gap A): vLLM for scoring-path-aligned eval. NOT installed by
+# this requirements.txt because vllm has tight torch/cu version coupling and
+# would risk re-triggering F-013-style torch drift against the cu121 + torch
+# 2.5.x + mamba_ssm 2.3.1 + causal_conv1d 1.6.2.post1 pins above. To opt in:
+#
+#     uv pip install 'vllm>=0.6.6,<0.7' --no-deps
+#     uv pip install ray  # if vllm complains about ray on first invocation
+#
+# Then flip USE_VLLM_EVAL=True in train.py. vllm_eval.py is the standalone
+# script train.py shells out to. The in-process HF eval path remains the
+# fallback (USE_VLLM_EVAL=False default). See 07-train-py-gap-analysis.md
+# Gap A for the rationale (~3 h HF eval → ~5 min vLLM eval, bypasses F-001).

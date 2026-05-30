@@ -77,6 +77,16 @@ MAX_GRAD_NORM = 1e9               # Effectively off; LoRA on frozen BF16 doesn't
 EVAL_MAX_NEW_TOKENS = 512         # Need enough for thinking + boxed answer
 EVAL_BATCH_SIZE = 1               # Reduced to avoid OOM on A100 80GB
 
+# T2.14 / Gap A — vLLM eval. When True, free the HF model after SFT and run
+# vllm_eval.py as a subprocess. vLLM has its own KV cache that bypasses F-001,
+# so the 30-sample eval drops ~3 h → ~5 min, scoring-path-aligned with the
+# Kaggle scorer. Default False: opt-in after first verifying vllm installs
+# cleanly on a pod (see requirements.txt comment for install path). On
+# subprocess failure, train.py exits with returncode 2 — NOT in-process
+# fallback (the HF model is freed before vllm starts, so it can't be
+# re-evaluated without reloading). See 07-train-py-gap-analysis.md Gap A.
+USE_VLLM_EVAL = False
+
 # SFT CoT (chain-of-thought)
 # See FRICTION.md F-004: USE_COT=False yields no \boxed{} (METRIC 0.1667). Locked True on main.
 USE_COT = True                    # Teach thinking pattern that eval uses
@@ -624,6 +634,37 @@ def main():
     torch.cuda.empty_cache()
 
     # ---- Evaluate ----
+    # T2.14 / Gap A — vLLM path. When USE_VLLM_EVAL=True we free the HF model
+    # from VRAM (vLLM needs ~60 GB BF16 + KV cache, won't co-exist with the
+    # already-loaded HF copy on an 80 GB GPU) and shell out to vllm_eval.py.
+    # vllm_eval.py emits the same METRIC: 0.XXXX line so the autoresearch
+    # parser is unchanged. On subprocess failure we exit(2) — fallback to
+    # in-process HF eval isn't possible because the HF model is already freed.
+    if USE_VLLM_EVAL:
+        import subprocess
+        print('\n=== T2.14 / Gap A: freeing HF model, invoking vllm_eval.py ===')
+        if torch.cuda.is_available():
+            print(f'Peak VRAM (train.py SFT phase): {torch.cuda.max_memory_allocated()/1024**3:.1f} GB')
+        del model
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        result = subprocess.run([
+            sys.executable, '-u', 'vllm_eval.py',
+            '--adapter', OUTPUT_DIR,
+            '--max-new-tokens', str(EVAL_MAX_NEW_TOKENS),
+        ])
+        elapsed = time.time() - start_time
+        print(f'\nTotal time (train.py + vllm_eval.py): {elapsed:.0f}s')
+        if result.returncode != 0:
+            print(f'vLLM eval FAILED (returncode={result.returncode}).')
+            print(f'In-process HF eval fallback is not available — HF model was freed before vllm started.')
+            print(f'To recover: set USE_VLLM_EVAL=False in train.py and re-run, or fix the vllm install per requirements.txt comment.')
+            sys.exit(2)
+        # vllm_eval.py already printed Overall accuracy / per-category / METRIC.
+        return
+
+    # Default path — in-process HF Transformers eval.
     # See FRICTION.md F-001: Nemotron HybridMambaAttentionDynamicCache bugs (conv_dim, conv_kernel_size, .device).
     # Redundant defense pair before any autoregressive decode: use_cache=False + Mamba fast-path off.
     # Both moved here from pre-SFT — fast-path is safe during teacher-forced training.

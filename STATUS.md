@@ -26,6 +26,22 @@ Block template (per program.md):
 End-of-session summary blocks go at the very top under the heading `### Session Summary YYYY-MM-DD`.
 -->
 
+### 2026-05-30 — T2.14 vLLM eval scaffolding (Gap A); default OFF pending first pod verification
+
+- **Current best METRIC:** 0.6667 (T2.10) — unchanged. T2.14 is scaffolding only; no measured run yet.
+- **Experiments since last status:** 0 (code-added but inert by default).
+- **What was tried:** Closed Gap A from `07-train-py-gap-analysis.md` at the code level. New `vllm_eval.py` loads the base model + LoRA via `vllm.LLM(enable_lora=True, max_lora_rank=32, max_model_len=8192, max_num_seqs=64, gpu_memory_utilization=0.85, enable_prefix_caching=True, enable_chunked_prefill=True)`, applies the chat template with `enable_thinking=True` (byte-identical to `prepare.py:_tokenize_prompt`), and emits the same `METRIC: 0.XXXX` line + per-category breakdown + weak-category debug section as `train.py`. Sampling params match the Kaggle scorer spec exactly (`temperature=0.0`, `top_p=1.0`, `max_tokens=512`) so the printed METRIC is directly comparable to the LB. `train.py` gains a `USE_VLLM_EVAL` config flag (default **False**); when True, the eval block frees the HF model (avoiding 60 GB + 60 GB co-existence on an 80 GB GPU), `subprocess.run(['python', '-u', 'vllm_eval.py', '--adapter', OUTPUT_DIR, '--max-new-tokens', '512'])`, and exits with returncode 2 on subprocess failure (no in-process HF fallback because the model is already freed). `requirements.txt` carries the install instruction in a comment rather than auto-installing vllm — F-013-style torch drift risk if vllm pulls a newer torch into the cu121/torch 2.5.x/mamba_ssm 2.3.1 environment. Manual install: `uv pip install 'vllm>=0.6.6,<0.7' --no-deps && uv pip install ray`. Net effect this commit: **neutral** (USE_VLLM_EVAL=False default, no behavioural change to the current run path).
+- **Files swept:** `vllm_eval.py` (new, ~170 lines), `verify_vllm_eval.sh` (new, ~180-line one-command harness — see below), `train.py` (config + eval-block branch), `requirements.txt` (install instruction comment).
+- **Canonical verification entry point: `./verify_vllm_eval.sh`** (executable, in repo root). Does pre-flight (venv + adapter + val_split + repo-root files) → captures F-013 pin baseline (torch / mamba_ssm / causal_conv1d) → installs vllm with `--no-deps` (plus ray on demand) → re-checks F-013 pins to detect torch drift → runs `vllm_eval.py --adapter ./adapter --max-new-tokens 512` and tees output to a timestamped log → parses the `METRIC: 0.XXXX` line → compares against `--expected` (default 0.6667 = T2.10) and prints PASS / 1-sample MISMATCH / >1-sample MISMATCH with recovery hints. Exit codes: 0=PASS, 1=install/drift failure, 2=METRIC mismatch, 3=pre-flight failure. Idempotent — re-runnable with `--skip-install` (~5 min) for stability checks. Time budget: ~15 min first run, ~5 min re-runs.
+- **Verification plan (T2.14 measurement):**
+  1. On the existing pod (T2.10 adapter at `./adapter`, no in-flight train.py): inside tmux, `./verify_vllm_eval.sh`. If exit 0, vLLM METRIC matches HF METRIC exactly — safe to flip `USE_VLLM_EVAL=True`.
+  2. After PASS, flip `USE_VLLM_EVAL=True` in `train.py` and land as `T1.34: USE_VLLM_EVAL=True default after T2.14 verified`. Next `python train.py` should drop from ~4.5 h to ~1.5 h (SFT ~3.5 h unchanged + vLLM init ~3 min + 30-sample parallel eval ~30 s vs HF ~1 h sequential).
+  3. If `verify_vllm_eval.sh` returns exit 2 (1-sample diff), re-run with `--skip-install` to check stability; if it flutters, investigate per-category in the log file (look for chat-template drift between train.py's `_tokenize_prompt` path and vllm_eval.py's `_build_prompt_texts`). If exit 2 with >1-sample diff, do NOT flip the flag — that's a real bug.
+- **Next:** measure on the live pod (vllm install + standalone check first; ~10 min). Pending acceptance gate: vLLM METRIC = T2.10 HF METRIC ±0. If validated, every future T2.x sweep costs ~1.5 h instead of ~4.5 h — a 3× sweep throughput multiplier per the gap doc.
+- **Blockers:** none. F-002 GRPO crash unchanged (still try/except'd). F-012 sanity-check hang risk unchanged. F-013 dep pins unchanged.
+
+---
+
 ### 2026-05-30 — T2.10 cipher char-by-char CoT + symbol arith CoT (+ F-016 collator fix): METRIC 0.6000 → **0.6667** (new best)
 
 - **Current best METRIC:** **0.6667** (T2.10) — bit_ops 40% (2/5), cipher 20% (1/5), gravity 100% (5/5), numeral 100% (5/5), symbol 40% (2/5), unit_conv 100% (5/5). Beats T2.8 (0.6000) by +0.0667 (+2 samples).
