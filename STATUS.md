@@ -26,6 +26,18 @@ Block template (per program.md):
 End-of-session summary blocks go at the very top under the heading `### Session Summary YYYY-MM-DD`.
 -->
 
+### 2026-05-30 — T1.32 document Remote Control + IS_SANDBOX + tmux throwaway-pod launch pattern
+
+- **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged. T2.9 (`e41db18`) still pending pod measurement.
+- **Experiments since last status:** 0 (documentation-only).
+- **What was tried:** Surfaced Claude Code `--remote-control` (alias `--rc`) as the recommended autonomous-launch flag for throwaway RunPod pods. Added new § "Remote Control (drive from claude.ai web/mobile)" to `docs/autoresearch-handoff.md` covering: how the flag works (local process polls Anthropic API for remote connections, no inbound port), claude.ai subscription requirement (Pro/Max/Team/Enterprise — API keys do not work), 10-minute reconnect window, orthogonality with the user-setup choice (combines with both the supported non-root user flow and the `IS_SANDBOX=1` throwaway-pod hack), the recommended launch wrapper (tmux for session persistence + F-010 unset + `IS_SANDBOX=1 claude --remote-control --dangerously-skip-permissions`), and explicit "when NOT to use" guidance (sensitive-data pods, long-lived shared pods, no subscription). Also added a third variant (`claude --remote-control --dangerously-skip-permissions`) to the existing § "Run Claude Code" command list. Updated `README.md` § "Handover" — step 1 rewrites the "set up a non-root user" line to "pick a user-setup approach" with Remote Control + tmux mention; step 3 shows both in-the-loop (`claude`) and throwaway-autonomous commands. Net effect: **neutral** on METRIC by construction — no `train.py` logic change.
+- **Files swept:** `docs/autoresearch-handoff.md` (new Remote Control section + § "Run Claude Code" variant), `README.md` (§ "Handover" steps 1 + 3), `BRANCH_NOTES.md` (chronology row), `program.md` (chronology table row).
+- **Trigger:** user setup question on a live pod ("setup Claude as `IS_SANDBOX=1 claude --dangerously-skip-permissions` and `--remote-control`") surfaced that the existing handoff doc predates Remote Control entirely.
+- **Next:** no further setup-doc T1 work queued. T2.9 baseline measurement is the only outstanding action — locked floor 0.5333, current best 0.6000 to beat.
+- **Blockers:** none.
+
+---
+
 ### 2026-05-30 — T1.31 promote F-010 (HF_XET_HIGH_PERFORMANCE) into runpod-setup.md § 5
 
 - **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged. T2.9 (`e41db18`) still pending pod measurement.

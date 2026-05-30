@@ -52,7 +52,7 @@ claude login
 
 ### Handover
 
-**1. Set up a non-root user.** RunPod pods boot as root, and `claude --dangerously-skip-permissions` refuses to run as root for safety. See [`docs/autoresearch-handoff.md`](docs/autoresearch-handoff.md) § "Create a non-root user" for the proper flow, or the `IS_SANDBOX=1` shortcut for throwaway pods.
+**1. Pick a user-setup approach.** RunPod pods boot as root, and `claude --dangerously-skip-permissions` refuses to run as root for safety. Two paths in [`docs/autoresearch-handoff.md`](docs/autoresearch-handoff.md): § "Create a non-root user" (supported) or § "Advanced: skipping the non-root user" (`IS_SANDBOX=1` for throwaway pods). For unattended runs, combine with `--remote-control` inside `tmux` to drive the session from claude.ai/code or the mobile app while the pod runs — see § "Remote Control (drive from claude.ai web/mobile)".
 
 **2. Export your tokens** — `prompt.md` step 1 verifies these are set before authenticating:
 
@@ -61,13 +61,18 @@ export HF_TOKEN=<YOUR_KEY>
 export WANDB_API_KEY=<YOUR_KEY>
 ```
 
-**3. Kick off the run.** As the non-root user, in the activated venv with the repo cloned:
+**3. Kick off the run.** In the activated venv with the repo cloned, inside `tmux` for session persistence:
 
 ```bash
-claude --dangerously-skip-permissions
+# In-the-loop (you approve each tool call):
+claude
+
+# Throwaway-pod autonomous run with Remote Control (recommended for unattended):
+[[ -n "${HF_XET_HIGH_PERFORMANCE:-}" ]] && unset HF_XET_HIGH_PERFORMANCE   # F-010 guard
+IS_SANDBOX=1 claude --remote-control --dangerously-skip-permissions
 ```
 
-Then paste the full contents of [`prompt.md`](prompt.md) into the session. It runs the full setup → train → eval → sanity-check loop end-to-end and **stops for your confirmation before any Tier 2 sweep**. Verify METRIC ≥ 0.5333 (the locked floor) before authorising new sweeps; current best is 0.6000 (T2.8). Some Tier 2 has already landed — check [`STATUS.md`](STATUS.md) first. Full handover details (non-root setup, `IS_SANDBOX` bypass, branch hygiene) are in [`docs/autoresearch-handoff.md`](docs/autoresearch-handoff.md).
+Then paste the full contents of [`prompt.md`](prompt.md) into the session. It runs the full setup → train → eval → sanity-check loop end-to-end and **stops for your confirmation before any Tier 2 sweep**. Verify METRIC ≥ 0.5333 (the locked floor) before authorising new sweeps; current best is 0.6000 (T2.8). Some Tier 2 has already landed — check [`STATUS.md`](STATUS.md) first. Full handover details (non-root setup, `IS_SANDBOX` bypass, Remote Control, branch hygiene) are in [`docs/autoresearch-handoff.md`](docs/autoresearch-handoff.md).
 
 ## Where to read next
 

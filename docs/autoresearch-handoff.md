@@ -66,6 +66,10 @@ claude
 
 # Skip prompts — only on disposable pods, only as a non-root user
 claude --dangerously-skip-permissions
+
+# Skip prompts + Remote Control — drive the session from claude.ai/code or
+# the Claude mobile app. See § "Remote Control (drive from claude.ai web/mobile)" below.
+claude --remote-control --dangerously-skip-permissions
 ```
 
 Then prime Claude by pasting the full kickoff prompt from [`../prompt.md`](../prompt.md). It covers pre-flight, install, training-in-background, and the Validation Contract sanity check, and stops for human confirmation before any Tier 2 work — so you can verify METRIC ≥ 0.5333 (the locked floor; current best on `main` is 0.6000 at T2.8) before granting permission to iterate. Note that some Tier 2 has already landed on `main` (T2.7 reverted, T2.8 kept), so beating 0.5333 still requires explicit go-ahead before new sweeps.
@@ -108,6 +112,69 @@ Then continue with `npm install -g @anthropic-ai/claude-code`, `claude login`, t
 | First kickoff on a new branch, or any unfamiliar workflow | **Approach 2** — 30 seconds isn't worth the dependency on an undocumented mechanism while you're still validating the workflow |
 | Repeated launches of a known-good kickoff on disposable pods | **Approach 1** is reasonable — you've calibrated trust in the prompt and model behaviour on this branch, and the time saved compounds across launches |
 | Any pod that isn't immediately disposable | Use the full non-root flow above (proper user, no shortcuts) — neither approach belongs on a long-lived pod |
+
+## Remote Control (drive from claude.ai web/mobile)
+
+Claude Code 2025+ supports `--remote-control` (alias `--rc`), which starts an interactive session that's simultaneously accessible from any browser at https://claude.ai/code or the Claude mobile app. The local Claude process polls Anthropic's API for remote connections — **no inbound port, no port-forwarding, no firewall config**. Reference: https://code.claude.com/docs/en/remote-control.md.
+
+This is the cleanest way to "set up the pod, walk away, drive it from a laptop or phone". The SSH terminal can disconnect entirely; the Claude process keeps running on the pod and you control it from claude.ai/code.
+
+### Requirements
+
+- A **claude.ai subscription** (Pro / Max / Team / Enterprise). API keys do not work for Remote Control.
+- `claude` must be authenticated to the same account (`claude login` once, before the first `--remote-control` invocation).
+- A **persistent terminal multiplexer** (`tmux` or `screen`). The local Claude process must keep running. If the terminal closes or network is down for >10 minutes, the session times out.
+
+### Combining with the user-setup choice
+
+`--remote-control` is orthogonal to whether you create a non-root user or use `IS_SANDBOX=1`. Add it to whichever invocation you'd otherwise be running:
+
+```bash
+# As claude-runner (the supported user flow above):
+claude --remote-control --dangerously-skip-permissions
+
+# Or under IS_SANDBOX=1 as root (the throwaway-pod hack from § Advanced above):
+IS_SANDBOX=1 claude --remote-control --dangerously-skip-permissions
+```
+
+### Recommended throwaway-pod launch wrapper
+
+For a disposable RunPod pod, the full launch — combining `IS_SANDBOX=1`, Remote Control, `--dangerously-skip-permissions`, `tmux` for session persistence, and the F-010 `HF_XET_HIGH_PERFORMANCE` unset (per [`../runpod-setup.md`](../runpod-setup.md) § 5) — is:
+
+```bash
+# Install tmux if missing (one-time, ~5s)
+apt-get install -y tmux
+
+# Start a persistent session (or 'tmux attach -t claude' to reattach later)
+tmux new -s claude
+
+# === inside tmux ===
+
+# F-010 guard (RunPod base images set HF_XET_HIGH_PERFORMANCE; unset it
+# before launching Claude so the kickoff prompt's prepare.py inherits the unset)
+[[ -n "${HF_XET_HIGH_PERFORMANCE:-}" ]] && unset HF_XET_HIGH_PERFORMANCE
+
+# Tokens (you'll have already exported these per runpod-setup.md § 3)
+[[ -n "$HF_TOKEN" && -n "$WANDB_API_KEY" ]] || { echo "set HF_TOKEN and WANDB_API_KEY first"; exit 1; }
+
+# Launch
+IS_SANDBOX=1 claude --remote-control --dangerously-skip-permissions
+```
+
+Detach with `Ctrl-b d` — the session keeps running. Reattach later from any SSH connection with `tmux attach -t claude`.
+
+After launch:
+
+1. Claude prompts `/login` on first run — authenticate with your claude.ai account.
+2. Claude displays a session URL + QR code. Open the URL on your laptop or phone to drive from anywhere.
+3. Paste the full contents of [`../prompt.md`](../prompt.md) as your first message.
+4. Walk away. Reconnect via the URL anytime to watch progress, approve Tier 2 sweeps, or hand control back to the model.
+
+### When NOT to use `--remote-control`
+
+- **Air-gapped or sensitive-data pods.** Remote Control routes all session content through Anthropic's servers over TLS — fine for a Kaggle puzzle competition; not fine for a pod with proprietary data.
+- **Long-lived shared pods.** The session URL grants full Claude control to anyone who has it; treat it as a credential. For shared / long-lived pods, prefer the in-the-loop `claude` flow with explicit per-tool permissions.
+- **No claude.ai subscription.** Falls back to standard `claude` (no `--remote-control`) — control from the SSH terminal only.
 
 ## See also
 
