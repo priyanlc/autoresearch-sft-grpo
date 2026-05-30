@@ -8,8 +8,9 @@ Python process* (not the same process that just trained) and verify a
 sample inference works. This is the actual scoring deployment path; most
 likely silent-break point."
 
-Reference load pattern: train.py:388-394 (model load) + :398 (fast-path
-disable, F-001) + :545 (use_cache=False, F-001).
+Reference load pattern: train.py:389-394 (model load) + :582 (fast-path
+disable, F-001) + :579 (use_cache=False, F-001). Post-T2.9 the disables
+are applied as a paired block right before eval, not pre-SFT.
 """
 
 import os
@@ -55,7 +56,7 @@ def main():
         torch_dtype=torch.bfloat16,
     )
 
-    # F-001 defenses — same as train.py:398, :545.
+    # F-001 defenses — same as train.py:582, :579 (paired pre-eval block).
     for name, mod in sys.modules.items():
         if 'modeling_nemotron_h' in name:
             mod.is_fast_path_available = False

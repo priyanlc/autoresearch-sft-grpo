@@ -18,7 +18,7 @@ related: [
 
 A deep dive on the relationship between the Mamba/Conv1d CUDA fast-path kernels, Nemotron's hybrid cache class, and the workarounds carried in `autoresearch-sft-grpo:main`. Anchored to FRICTION entry **F-001**.
 
-If you only need the operational summary, read [`../BRANCH_NOTES.md`](../BRANCH_NOTES.md) Patches table and [`../FRICTION.md`](../FRICTION.md) F-001. This page exists for the technical context behind those entries — what's actually broken, why both `train.py:398` and `train.py:545` are needed (not redundant), and what concretely changes when F-001 resolves upstream.
+If you only need the operational summary, read [`../BRANCH_NOTES.md`](../BRANCH_NOTES.md) Patches table and [`../FRICTION.md`](../FRICTION.md) F-001. This page exists for the technical context behind those entries — what's actually broken, why both `train.py:582` and `train.py:579` are needed (not redundant, even though they're now applied as a single paired block before eval), and what concretely changes when F-001 resolves upstream.
 
 ## What's broken (F-001, in detail)
 
@@ -70,10 +70,12 @@ The fast path is *structurally built around the cache*. There's no way to turn i
 
 | Line | Workaround | What it bypasses |
 |---|---|---|
-| `train.py:398` | `mod.is_fast_path_available = False` (loops `sys.modules` for `modeling_nemotron_h`) | Forces pure-PyTorch math even where the fused CUDA kernels would otherwise run |
-| `train.py:545` | `model.config.use_cache = False` before eval | Makes generation re-do the full forward each step instead of touching the cache |
+| `train.py:582` | `mod.is_fast_path_available = False` (loops `sys.modules` for `modeling_nemotron_h`) | Forces pure-PyTorch math even where the fused CUDA kernels would otherwise run |
+| `train.py:579` | `model.config.use_cache = False` before eval | Makes generation re-do the full forward each step instead of touching the cache |
 
 Both are needed. The fast path won't even be *selected* if `use_cache=False` (one code path), but if `use_cache=True` is accidentally re-enabled somewhere downstream and the fast-path disable were removed, you'd hit the same bugs from a different angle. The pair are redundant defenses that together guarantee no code path touches the broken cache.
+
+Post-T2.9, both are applied as a single paired block right before eval rather than at two separate points in the file. The fast path stays ON during SFT — teacher-forced forward processes the full sequence in parallel and never touches the cache, so F-001 cannot manifest there. T2.9 captured ~10-30% SFT speedup from this.
 
 This is the operational reality reflected in `autoresearch-sft-grpo:main`'s `BRANCH_NOTES.md` Patches table and `program.md` § "Patches in `train.py` — DO NOT REMOVE."
 
@@ -98,8 +100,8 @@ In practice the fix lands wherever the file lives. Today it lives in the model c
 
 Concretely, this set of edits:
 
-1. **Drop the fast-path disable** (`train.py:395–398`).
-2. **Drop `model.config.use_cache = False`** before eval (`train.py:545`).
+1. **Drop the fast-path disable** (`train.py:580–582`).
+2. **Drop `model.config.use_cache = False`** before eval (`train.py:579`).
 3. **Drop the in-place edits to `modeling_nemotron_h.py`** that the prior session applied to the HF cache to keep the slow path from crashing on tangentially related issues. Those workarounds become obsolete and should be removed so they don't shadow the upstream fix.
 4. **Update FRICTION F-001** to `final state: resolved`, with a note pointing at the upstream fix commit.
 5. **Update `BRANCH_NOTES.md` Patches table** to drop the row for `use_cache = False`.
@@ -125,7 +127,7 @@ Worth calling out so readers don't conflate them:
 | Package | Status on `main` | Why |
 |---|---|---|
 | `mamba_ssm` | **Required** to load the model at all | The modeling file does an unconditional `from mamba_ssm.ops.triton.layernorm_gated import rmsnorm_fn` wrapped in `try/except ImportError: raise`. This is the layer's RMSNorm, used regardless of fast-path setting. Different code path, different requirement profile. |
-| `causal_conv1d` | **Required at install time, inert at runtime** (per T1.14, FRICTION F-009) | The runtime imports are conditional with graceful `None` fallback, so the package itself is never *called* while `train.py:398` force-disables the fast path. But transformers' `dynamic_module_utils.check_imports` does AST-level static import checking on `modeling_nemotron_h.py` — it walks every `Import`/`ImportFrom` node regardless of `if`/`try` guards and demands every imported module be importable. So the dep must be present even though it is dead code. Stops being inert when F-001 resolves and the fast path is re-enabled. |
+| `causal_conv1d` | **Required at install time; runtime status changed at T2.9** (per T1.14, FRICTION F-009; T2.9 chronology) | The runtime imports are conditional with graceful `None` fallback. Until T2.9 (2026-05-28) the fast path was force-disabled for the entire run (`train.py:398` at that time), so the package's kernels were never *called*. Post-T2.9 the fast path stays ON during SFT and is disabled only before eval (`train.py:582` paired with `use_cache=False` at `train.py:579`) — the kernels now run during the SFT forward. The install-time requirement is unchanged either way because transformers' `dynamic_module_utils.check_imports` does AST-level static import checking on `modeling_nemotron_h.py` — it walks every `Import`/`ImportFrom` node regardless of `if`/`try` guards and demands every imported module be importable. The "inert at runtime" framing applies only to the pre-T2.9 baseline. |
 
 The two packages historically ship together (both are part of the Mamba ecosystem), which makes them feel symmetric. They are not. Inside the Nemotron modeling file, `mamba_ssm` does double duty: it provides the fast-path SSM kernels *and* the RMSNorm primitive. Only the kernel side is gated by `is_fast_path_available`; the RMSNorm import is unconditional.
 

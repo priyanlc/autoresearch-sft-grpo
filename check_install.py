@@ -40,10 +40,11 @@ def main():
     # Model-specific
     print('\nModel-specific:')
     all_ok &= check('mamba_ssm')
-    # causal_conv1d is REQUIRED at install time even though the runtime fast
-    # path is force-disabled by train.py:398 — see FRICTION F-009 and T1.14.
-    # transformers' AST-level static check_imports() rejects the modeling
-    # file without it, before train.py's runtime workaround can ever apply.
+    # causal_conv1d is REQUIRED at install time. transformers' AST-level
+    # static check_imports() rejects the modeling file without it, before
+    # train.py's runtime can ever apply. Post-T2.9 the runtime fast path
+    # runs during SFT and is disabled before eval at train.py:582 (paired
+    # with use_cache=False at train.py:579). See FRICTION F-009 and T1.14.
     all_ok &= check('causal_conv1d')
     all_ok &= check('sentencepiece')
 

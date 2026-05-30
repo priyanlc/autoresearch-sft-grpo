@@ -40,9 +40,10 @@ the regression bar; do not raise it without explicit instruction. Then:
    `check_imports` does AST-level static import checking on
    modeling_nemotron_h.py and rejects the conditional `from causal_conv1d
    import ...` even though it sits inside an `if is_causal_conv1d_available()`
-   guard at runtime. See FRICTION F-009 / T1.14. The runtime fast path is
-   still force-disabled at train.py:398, so causal_conv1d's CUDA kernels
-   are present but never called.
+   guard at runtime. See FRICTION F-009 / T1.14. Post-T2.9 the runtime
+   fast path runs during SFT and is disabled before eval at train.py:582
+   (paired with use_cache=False at train.py:579 — the F-001 redundant
+   defense pair).
 3. Authenticate non-interactively: `hf auth login --token $HF_TOKEN` and
    `wandb login $WANDB_API_KEY`. (Note: W&B is currently disabled in
    train.py via `report_to='none'`; the login is harmless and reserved
@@ -73,7 +74,7 @@ the regression bar; do not raise it without explicit instruction. Then:
    BF16-base sanity check from a *separate* Python process: load the
    adapter from OUTPUT_DIR onto a fresh BF16 base using the same
    MODEL_ID and `torch_dtype=torch.bfloat16, device_map='auto',
-   trust_remote_code=True` pattern from train.py:388-394, run a sample
+   trust_remote_code=True` pattern from train.py:389-394, run a sample
    inference on one val example, and verify the output is non-empty
    and structurally plausible. Log the result. (Note: program.md does
    not include a ready-made snippet — write the script yourself; the

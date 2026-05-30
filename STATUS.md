@@ -26,6 +26,18 @@ Block template (per program.md):
 End-of-session summary blocks go at the very top under the heading `### Session Summary YYYY-MM-DD`.
 -->
 
+### 2026-05-30 — T1.29 doc citation + content sweep after T2.9 fast-path relocation
+
+- **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged. T2.9 (`e41db18`) was committed 2026-05-28 but has not yet been measured on a pod; locked floor remains 0.5333 (`c1bb0a6`).
+- **Experiments since last status:** 0 (documentation-only).
+- **What was tried:** T2.9 (committed 2026-05-28 as part of the wiki gap-analysis Phase 1 quick wins) moved the Mamba fast-path disable from pre-SFT (old `train.py:398`) to pre-eval (new `train.py:582`), paired with the existing `use_cache=False` at `train.py:579`. The fast-path now runs during SFT teacher-forced forward (~10-30% expected SFT speedup; F-001 cannot manifest there because the cache is never touched). T2.9 also added `DataCollatorForCompletionOnlyLM` for assistant-only loss and bumped `MAX_GRAD_NORM` 1.0 → 1e9. T1.29 is the doc-citation + content sweep that catches up to T2.9 across nine files: `bootstrap.sh:31`, `requirements.txt:20/23/30`, `check_install.py:44`, `adapter_sanity_check.py:11-12/58`, `runpod-setup.md:56`, `prompt.md:44/76`, `BRANCH_NOTES.md` Patches table, `program.md` Patches table, `FRICTION.md` F-001 attempts + F-009 resolution note, and `docs/fast-path-and-cache.md` lines 21/73/74/102/128. Also reworded the "loaded but never called" / "harmless at runtime" claims in `runpod-setup.md`, `requirements.txt`, `bootstrap.sh`, `prompt.md`, and `docs/fast-path-and-cache.md` — those were factually wrong post-T2.9 because the kernels are now exercised during SFT. New framing throughout: "kernels run during SFT, disabled before eval as the F-001 defense pair." Also backfilled the `program.md` Tier 1 chronology table with T1.26..T1.29 rows (`program.md` table was last updated at T1.25; T1.26-T1.28 had only landed in `BRANCH_NOTES.md`). Net effect: **neutral** on METRIC by construction — no `train.py` logic change.
+- **Triggered by:** user audit "are the runpod setup instructions still valid?" — surfaced T2.9 drift across the install scripts and patches tables.
+- **Files swept:** `bootstrap.sh`, `requirements.txt`, `check_install.py`, `adapter_sanity_check.py`, `runpod-setup.md`, `prompt.md`, `BRANCH_NOTES.md` (Patches table + chronology), `program.md` (Patches table + chronology table backfill), `FRICTION.md` (F-001 attempts + F-009 resolution), `docs/fast-path-and-cache.md`. STATUS.md historical entries left untouched per append-only convention (T1.16/T1.23 references to `:386`/`:398`/`:545` preserved as timestamped facts).
+- **Next:** T2.9 baseline measurement on the next pod session — verify METRIC ≥ 0.5333 (locked floor) and ideally ≥ 0.6000 (T2.8 current best). If T2.9 lands above 0.6000 it becomes the new bar; if below 0.6000 but above 0.5333 it stands as inconclusive (per program.md § Validation Contract); if below 0.5333 it is a regression and must be reverted per branch hygiene.
+- **Blockers:** none.
+
+---
+
 ### 2026-05-09 — T1.28 surface bootstrap.sh in README Quickstart + finish T1.23 line-number sweep
 
 - **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged.

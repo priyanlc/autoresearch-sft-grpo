@@ -17,19 +17,20 @@ datasets>=2.18.0
 # Model-specific
 # mamba_ssm: REQUIRED. modeling_nemotron_h.py unconditionally imports
 # rmsnorm_fn from mamba_ssm; without it, the model fails to load before
-# train.py:398's fast-path toggle ever runs.
+# any code in train.py runs.
 mamba_ssm
-# causal_conv1d: REQUIRED at install time even though the runtime fast path
-# is force-disabled by train.py:398. Reason: transformers' dynamic-module
+# causal_conv1d: REQUIRED at install time. transformers' dynamic-module
 # loader (transformers/dynamic_module_utils.py:check_imports) walks the AST
 # of modeling_nemotron_h.py and demands that every imported module be
 # importable, regardless of whether the import sits inside an
 # `if is_causal_conv1d_available():` guard. T1.9 (which previously commented
 # this dep out) was based on a runtime-correct but static-analysis-incorrect
 # mental model; reverted by T1.14 after F-009 reproduced the failure.
-# At runtime the package is harmless: train.py:398 still flips
-# is_fast_path_available to False, so causal_conv1d_fn / causal_conv1d_update
-# are never actually called. See FRICTION.md F-001 and F-009, and
+# At runtime (post-T2.9): the fused CUDA kernels (causal_conv1d_fn /
+# causal_conv1d_update) run during SFT teacher-forced forward (no cache
+# touched, so F-001 doesn't apply). They are disabled before eval at
+# train.py:582, paired with model.config.use_cache = False at train.py:579
+# — the F-001 redundant defense pair. See FRICTION.md F-001 and F-009, and
 # docs/fast-path-and-cache.md.
 causal_conv1d
 sentencepiece
