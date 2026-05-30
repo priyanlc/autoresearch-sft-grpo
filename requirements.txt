@@ -18,7 +18,11 @@ datasets>=2.18.0
 # mamba_ssm: REQUIRED. modeling_nemotron_h.py unconditionally imports
 # rmsnorm_fn from mamba_ssm; without it, the model fails to load before
 # any code in train.py runs.
-mamba_ssm
+# PIN ==2.3.1 (F-013): 2.3.2.post1 hard-requires torch==2.12 (cu13). 2.3.1
+# is the last release compatible with torch 2.5.x/cu121. Must match the pin
+# in bootstrap.sh, or this line's full-graph resolve disagrees with what
+# bootstrap installed and uv rebuilds it under build isolation (torch drift).
+mamba_ssm==2.3.1
 # causal_conv1d: REQUIRED at install time. transformers' dynamic-module
 # loader (transformers/dynamic_module_utils.py:check_imports) walks the AST
 # of modeling_nemotron_h.py and demands that every imported module be
@@ -32,7 +36,10 @@ mamba_ssm
 # train.py:582, paired with model.config.use_cache = False at train.py:579
 # — the F-001 redundant defense pair. See FRICTION.md F-001 and F-009, and
 # docs/fast-path-and-cache.md.
-causal_conv1d
+# PIN ==1.6.2.post1 (F-013): match bootstrap.sh so the full-graph resolve here
+# sees it satisfied and never rebuilds it under build isolation. 1.6.2.post1
+# builds cleanly against torch 2.5.x/cu121.
+causal_conv1d==1.6.2.post1
 sentencepiece
 
 # Data

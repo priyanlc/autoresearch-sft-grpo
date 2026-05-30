@@ -44,6 +44,52 @@ Copy this block for each new entry. **Newer entries go at the top of the Entries
 
 <!-- Append new entries below this line, newest first. Use sequential ids: F-001, F-002, ... -->
 
+### F-013 — `bootstrap.sh` torch drift: unpinned `mamba_ssm` pulls torch 2.12/cu13, breaking the CUDA builds against system CUDA 12.8
+
+- **timestamp:** 2026-05-30 08:36 UTC (first failure) / 08:59 UTC (resolved)
+- **phase:** env_install
+- **signature:**
+
+  First failure — `causal_conv1d` source build aborts:
+
+  ```
+  RuntimeError: ('The detected CUDA version (%s) mismatches the version that
+  was used to compile PyTorch (%s). ...', '12.8', '13.0')
+  (during `uv pip install causal_conv1d --no-build-isolation`)
+  ```
+
+  Post-mortem of the venv: `torch 2.5.1+cu121` (installed by bootstrap Step 1)
+  had been silently replaced by `torch 2.12.0+cu130`; `mamba_ssm` then failed to
+  import with `ImportError: .../selective_scan_cuda...so: undefined symbol`
+  (its .so was compiled against the old cu121 torch, ABI-broken by the upgrade).
+
+  Second failure (after the `--no-deps` fix below, during `requirements.txt`):
+
+  ```
+  × Failed to download and build `mamba-ssm==2.3.1`
+  ╰─▶ No space left on device (os error 28)
+      (cloning nvidia_cublas_cu12-12.8.4.1 into the build-isolation temp env)
+  ```
+
+- **hypothesized root cause:** Two coupled defects, both forms of unpinned-dependency drift surfacing because upstream `torch`/`mamba_ssm` moved past the versions current when `bootstrap.sh` was authored:
+
+  1. **`--no-build-isolation` ≠ no dependency resolution.** The flag only governs the *build* environment; `uv pip install mamba_ssm` still re-resolves runtime deps. `mamba_ssm`'s newest release **2.3.2.post1 hard-requires `torch==2.12` (a cu13 build)**, so uv upgraded the Step-1 `torch 2.5.1+cu121` → `2.12.0+cu130`. That (a) ABI-broke `mamba_ssm`'s already-compiled `.so` and (b) made `causal_conv1d`'s source build fail the `torch.utils.cpp_extension` CUDA-version check (torch cu130 vs system nvcc 12.8 — major mismatch).
+  2. **Version disagreement between the two install stages.** With deps pinned off (fix 1), bootstrap installs `mamba_ssm` = latest = `2.3.2.post1`, but `requirements.txt`'s full-graph resolve (with `transformers==4.51.3`) selects `2.3.1` — the last release compatible with `torch 2.5.x`. The mismatch makes the downstream `uv pip install -r requirements.txt` try to **rebuild `2.3.1` under build isolation**, which re-pulls a cu13 torch + `nvidia-cublas-cu12` into the temp build env, re-triggering the drift and (on the 30 GB `/root` overlay) exhausting the disk.
+
+- **attempts:**
+  - Added `--no-deps` to the `mamba_ssm` / `causal_conv1d` installs in `bootstrap.sh` Step 3, plus `einops` (a real `mamba_ssm` runtime dep) to Step 2 → **stopped the torch upgrade** (torch stayed `2.5.1+cu121`, `causal_conv1d` built clean in 8m26s) but **left the wrong `mamba_ssm` version** (2.3.2.post1) installed via `--no-deps`, which then collided with `requirements.txt`'s 2.3.1 resolve → second failure.
+  - Diagnosed the version collision with `uv pip install --dry-run 'mamba_ssm==2.3.2.post1' 'transformers==4.51.3'` → confirmed 2.3.2.post1 forces `torch==2.12.0` + the whole cu13 stack; 2.3.1 keeps `torch 2.5.1+cu121`.
+  - `uv cache clean` → reclaimed 19.2 GiB (the cache held both the cu12 and dead cu13 torch stacks from the failed runs; `uv cache prune` found "no unused entries" and freed nothing — the dead wheels were still "referenced"). `/root` overlay 85% → 21%.
+  - **Pinned `mamba_ssm==2.3.1` and `causal_conv1d==1.6.2.post1` in BOTH `bootstrap.sh` and `requirements.txt`**, rebuilt `mamba_ssm` 2.3.1 in place (`--no-build-isolation --no-deps --reinstall`, 8m47s), then `uv pip install -r requirements.txt` → resolved cleanly, installed only the 43 pure-Python packages, **torch untouched**. `check_install.py` → All checks passed.
+- **final state:** resolved.
+  - **Resolution:** `bootstrap.sh` Step 3 now installs `mamba_ssm==2.3.1` and `causal_conv1d==1.6.2.post1` with `--no-build-isolation --no-deps`; Step 2 adds `einops`. `requirements.txt` pins the same two versions with comments cross-referencing this entry. Both stages now agree, so `requirements.txt` sees the CUDA packages satisfied and never rebuilds them.
+  - **Symbol-compat verification (avoids an F-009 repeat):** confirmed the *actual* `modeling_nemotron_h.py` imports — `selective_state_update`, `mamba_chunk_scan_combined` / `mamba_split_conv1d_scan_combined`, `rmsnorm_fn` (from `mamba_ssm.ops.triton.layernorm_gated`, **not** `layer_norm`), and `causal_conv1d_fn` / `causal_conv1d_update` — all resolve against `mamba_ssm 2.3.1`. (A first probe against `mamba_ssm.ops.triton.layer_norm` found only `rms_norm_fn` and looked like a breakage; the modeling file actually imports from the `layernorm_gated` submodule, which exports `rmsnorm_fn`. Always grep the real modeling file, don't trust the module-name memory.)
+- **notes:**
+  - **`--no-deps` is necessary but not sufficient** — it pins the torch version *down* but does not pin the `mamba_ssm` *version*, so a fresh pod still installs whatever `mamba_ssm` latest is. The version pin is the load-bearing half; keep both.
+  - **Generalisable:** any source-built CUDA package installed `--no-build-isolation` should also be `--no-deps` *and* version-pinned, and the same pin must appear everywhere the package is listed (here: `bootstrap.sh` + `requirements.txt`). A bare name in two files re-resolves independently and the two resolutions drift apart over time.
+  - **Disk:** `/root` overlay is only ~30 GB on this pod. A failed build that leaves a second torch stack in `UV_CACHE_DIR` (`/root/uv-cache`) can wedge subsequent installs with `os error 28`; `uv cache clean` (not `prune`) is the reclaim hammer. The 60 GB HF model cache lives on `/workspace` (F-007), so it is not the squeeze — the uv cache is.
+  - **Stale doc timing:** `runpod-setup.md` § 2 still claims "bootstrap ~2 s, requirements ~10 s". That holds only when prebuilt wheels exist; on this pod both `mamba_ssm` and `causal_conv1d` build from source (~8–9 min each). Worth correcting if it misleads the next operator.
+
 ### F-012 — `adapter_sanity_check.py` hangs between `PeftModel.from_pretrained` and the first `model.generate` call
 
 - **timestamp:** 2026-05-07 20:30 UTC (first attempt) / 20:48 UTC (retry, killed during graceful shutdown)
