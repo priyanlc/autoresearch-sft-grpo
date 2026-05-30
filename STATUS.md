@@ -26,6 +26,22 @@ Block template (per program.md):
 End-of-session summary blocks go at the very top under the heading `### Session Summary YYYY-MM-DD`.
 -->
 
+### 2026-05-30 — T2.10 cipher char-by-char CoT + symbol arith CoT (+ F-016 collator fix): METRIC 0.6000 → **0.6667** (new best)
+
+- **Current best METRIC:** **0.6667** (T2.10) — bit_ops 40% (2/5), cipher 20% (1/5), gravity 100% (5/5), numeral 100% (5/5), symbol 40% (2/5), unit_conv 100% (5/5). Beats T2.8 (0.6000) by +0.0667 (+2 samples).
+- **Experiments since last status:** 1 (T2.10). Run on a fresh A100 80GB pod after a full env rebuild + three infra workarounds this session (F-014/F-015/F-016).
+- **What was tried:**
+  - **F-016 (mandatory fix):** T2.9's `DataCollatorForCompletionOnlyLM` (assistant-only loss) masked *every* token (loss 0.0, grad_norm 0.0) — response-template token-mismatch. Reverted to full-sequence SFT loss (known-good T2.8 behaviour). Confirmed offline (1576 non-masked labels) + live (train_loss 2.97, mean_token_accuracy ~0.83). T2.9's assistant-only loss was never functional.
+  - **Cipher char-by-char CoT:** `_build_dynamic_cot` now walks the substitution map char-by-char over the target ciphertext (gaps filled from target↔answer alignment for consistent traces), instead of only announcing the map. Unit-tested 5/5 decode-consistent on val. → cipher **0/5 → 1/5** (targeted real signal, though smaller than the gravity precedent).
+  - **Symbol arithmetic CoT:** added a `symbol` branch that reverse-engineers the operator (×, −, concat, …) from the gold answer for the arithmetic subtype; opaque symbol-substitution puzzles fall back to static (no F-011 garbage). 2/5 dynamic on val. → symbol **2/5 → 2/5** (no measurable val gain this run).
+  - Net effect: **helped** (+2 samples). cipher +1 is attributable to the CoT change; bit_ops 1/5→2/5 is most likely 1-sample variance (untouched path); symbol flat.
+- **Time:** 15,701 s (~4 h 22 m). **Peak VRAM:** 75.2 GB. GRPO fast-failed per F-002 (tensor mismatch 106 vs 233) → SFT-only, expected.
+- **Infra this session (fresh pod):** F-014 (`hf_transfer` weights-download deadlock → plain downloader), F-015 (`/workspace` ~48 GB MooseFS quota too small for 60 GB model → HF cache on `/dev/shm` RAM tmpfs), F-013 (mamba/causal_conv1d version pins). peft 0.19.1 `get_peft_model` 'all-linear' on the 30B MoE is slow (~20 min) but produces the correct 884M-param adapter.
+- **Next:** (a) cipher CoT helps but only +1 — the model produces partial decodes (e.g. "knight studies the colorful book" vs "dragon follows…"); worth investigating whether more cipher SFT weight or a cleaner walk format pushes it further. (b) symbol arith branch had no val effect — revisit whether the failing val symbols are the opaque subtype (untouched). (c) Adapter-on-fresh-base sanity check (program.md Validation Contract item 5) still owed; watch for F-012 hang. (d) Properly fix the assistant-only loss collator (token-id-based response template) — it's a genuine improvement if working.
+- **Blockers:** none open (F-002 GRPO expected-fail; F-012 sanity-check hang risk noted).
+
+---
+
 ### 2026-05-30 — T1.32 document Remote Control + IS_SANDBOX + tmux throwaway-pod launch pattern
 
 - **Current best METRIC:** 0.6000 (T2.8, `c4a9d1c`) — unchanged. T2.9 (`e41db18`) still pending pod measurement.

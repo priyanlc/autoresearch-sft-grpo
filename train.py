@@ -106,25 +106,38 @@ _COT_DEFAULT = "Let me analyze the pattern in the given examples and apply it to
 def _build_dynamic_cot(qtype, prompt, answer):
     """Build a category-specific reasoning trace using example data + answer."""
     if qtype == 'cipher':
-        # Extract cipher/plain pairs from the prompt to build a substitution map.
-        # T2.8: anchor each pair to a single line via re.MULTILINE. The previous
-        # regex was greedy across newlines and produced garbled pairs like
-        # ('\nciphertext_a', 'plaintext_a\nciphertext_b'), training the model on
-        # nonsense substitution maps. See FRICTION.md F-011.
+        # Build the substitution map from the example pairs, then WALK THROUGH
+        # decrypting the target ciphertext char-by-char. T2.10: show the actual
+        # computation rather than only announcing the map — the gravity lesson
+        # (gravity 1/5->5/5 because its CoT computes; cipher stayed 0/5 because
+        # T2.8's CoT only listed the mapping). Gaps not covered by the examples
+        # are filled from the target<->answer alignment (the gold answer is
+        # available at SFT time), so the walk-through is always consistent with
+        # the boxed answer. Pair extraction still line-anchored per F-011.
         import re as _re
         pairs = _re.findall(r'^([^\n]+?)\s*->\s*([^\n]+?)\s*$', prompt.lower(), _re.MULTILINE)
         mapping = {}
-        for cipher, plain in pairs:
-            cipher = cipher.strip()
-            plain = plain.strip()
-            if len(cipher) == len(plain):
-                for c, p in zip(cipher, plain):
+        for ct, pt in pairs:
+            ct, pt = ct.strip(), pt.strip()
+            if len(ct) == len(pt):
+                for c, p in zip(ct, pt):
                     if c.isalpha() and p.isalpha():
                         mapping[c] = p
-        if mapping:
-            map_str = ', '.join(f'{k}->{v}' for k, v in sorted(mapping.items()))
-            return (f"I'll build the substitution map from the examples. Mapping: {map_str}. "
-                    f"Applying this to the cipher gives: {answer}")
+        mt = _re.search(r'decrypt the following text:\s*(.+)', prompt, _re.IGNORECASE)
+        target = mt.group(1).strip() if mt else None
+        if mapping and target:
+            if len(target) == len(answer):
+                for c, p in zip(target.lower(), answer.lower()):
+                    if c.isalpha() and p.isalpha() and c not in mapping:
+                        mapping[c] = p
+            decoded = ''.join(mapping.get(ch, ch) if ch.isalpha() else ch
+                              for ch in target.lower())
+            first = target.split()[0] if target.split() else target
+            steps = ', '.join(f'{ch}->{mapping.get(ch, "?")}' for ch in first.lower())
+            return (f"I'll derive the substitution map from the examples and decrypt "
+                    f"char by char. '{first}': {steps} = "
+                    f"'{''.join(mapping.get(c, c) for c in first.lower())}'. "
+                    f"Full decryption of '{target}': {decoded}. Answer: {answer}")
     elif qtype == 'gravity':
         # Try to extract a (t, d) pair to compute g.
         # T2.8: require the literal "distance" keyword (and "m" suffix) so the
@@ -150,6 +163,38 @@ def _build_dynamic_cot(qtype, prompt, answer):
     elif qtype == 'bit_ops':
         return (f"Comparing input/output bit patterns to identify the operation "
                 f"(shift, rotate, XOR, AND, OR, NOT, or combinations). Result: {answer}")
+    elif qtype == 'symbol':
+        # T2.10: 'symbol' is heterogeneous. For the ARITHMETIC subtype (two
+        # integer operands joined by an operator symbol) reverse-engineer the
+        # operation from the gold answer and show the computation. Opaque
+        # symbol-substitution puzzles (length-changing, no derivable rule)
+        # return None -> static fallback (avoids F-011-style garbage CoT).
+        # Validated 2/5 dynamic + 3/5 safe-fallback on the val split.
+        import re as _re
+        mt = _re.search(r'result for:\s*(.+)', prompt, _re.IGNORECASE)
+        if mt:
+            m = _re.fullmatch(r'\s*(-?\d+)\s*(\D)\s*(\d+)\s*', mt.group(1).strip())
+            ans_clean = answer.strip().strip('\'"').strip()
+            if m:
+                try:
+                    a, sym, b = int(m.group(1)), m.group(2), int(m.group(3))
+                    gold = int(ans_clean)
+                    cands = {
+                        'addition (a+b)': a + b,
+                        'subtraction (a-b)': a - b,
+                        'reverse subtraction (b-a)': b - a,
+                        'multiplication (a*b)': a * b,
+                        'integer division (a//b)': (a // b if b else None),
+                        'concatenation (digits of a then b)': int(f'{a}{b}'),
+                        'sum of digits': sum(int(d) for d in f'{a}{b}'),
+                    }
+                    match = [name for name, v in cands.items() if v == gold]
+                    if match:
+                        return (f"The symbol '{sym}' encodes an operation on {a} and {b}. "
+                                f"Matching the examples, '{sym}' is {match[0]}. "
+                                f"Computing: {a} {sym} {b} = {gold}. Answer: {gold}")
+                except ValueError:
+                    pass
     return None
 
 
@@ -464,11 +509,17 @@ def main():
         tokenizer=tokenizer,
     )
 
+    # F-016: T2.9's DataCollatorForCompletionOnlyLM masked EVERY token (loss 0.0,
+    # grad_norm 0.0) — the response_template '<|im_end|>\n<|im_start|>assistant\n
+    # <think></think>' tokenizes standalone to an id-sequence that never appears
+    # in-context (boundary-merge mismatch), so the collator found no boundary and
+    # masked all labels. Reverted to full-sequence SFT loss (the known-good T2.8
+    # behaviour that scored 0.6000). _detect_response_template/sft_collator above
+    # are kept but unused pending a token-id-based fix. See FRICTION.md F-016.
     sft_trainer = SFTTrainer(
         model=model,
         train_dataset=sft_dataset,
         processing_class=tokenizer,
-        data_collator=sft_collator,
         args=sft_args,
     )
 

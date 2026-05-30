@@ -44,6 +44,107 @@ Copy this block for each new entry. **Newer entries go at the top of the Entries
 
 <!-- Append new entries below this line, newest first. Use sequential ids: F-001, F-002, ... -->
 
+### F-016 — T2.9's `DataCollatorForCompletionOnlyLM` masks every token → SFT loss 0.0, zero gradient (assistant-only loss never worked)
+
+- **timestamp:** 2026-05-30 10:50 UTC
+- **phase:** sft
+- **signature:**
+
+  First SFT logging step (and a standalone repro) showed no learning signal:
+
+  ```
+  {'loss': 0.0, 'grad_norm': 0.0, 'learning_rate': 6e-05, 'num_tokens': 8340.0,
+   'mean_token_accuracy': 0.0, 'epoch': 0.03}
+  ```
+
+  Standalone collator test (tokenizer only, 6 SFT examples across qtypes):
+
+  ```
+  response_template = '<|im_end|>\n<|im_start|>assistant\n<think></think>'
+  standalone token ids (8): [11, 1010, 10, 1503, 19464, 1010, 12, 13]
+  subsequence found in example input_ids at index: -1     # never matches in-context
+  TOTAL non-masked labels across 6 examples: 0            # everything is -100
+  'ignored in loss' warnings: 6/6   (live run printed only ~5 — warnings.warn dedups by call-site)
+  ```
+
+- **hypothesized root cause:** `DataCollatorForCompletionOnlyLM` (added in T2.9 for assistant-only loss) locates the assistant boundary by searching for the **token-id sequence** of `response_template`. The template string, tokenized standalone, yields ids that never appear contiguously in a full tokenized example — the classic boundary-merge mismatch (leading `<|im_end|>` / newlines tokenize differently when preceded by content). With no boundary found, the collator masks the **entire** instance (`labels = -100`). Every instance → all labels masked → loss 0.0, grad_norm 0.0, no parameter updates. The adapter trains to nothing; the eval METRIC would reflect base-model + random-LoRA-init, not the data. `warnings.warn`'s once-per-site dedup made the live run print only ~5 warnings, hiding that it was happening to all 1200 samples.
+- **attempts:**
+  - Saw `loss 0.0 / grad_norm 0.0 / mean_token_accuracy 0.0` at the first log step; suspected all-masked labels.
+  - Reproduced offline with the exact `_detect_response_template` output + `DataCollatorForCompletionOnlyLM` over 6 real SFT examples → **0 non-masked labels**, response-template id-subsequence absent (index -1). Root cause confirmed without burning the ~5 h run.
+  - Reverted to **full-sequence SFT loss** (removed the `data_collator=` arg from `SFTTrainer`) — the known-good T2.8 behaviour that scored 0.6000. `train.py:467` region; the `_detect_response_template`/`sft_collator` code is kept but unused.
+- **final state:** worked-around (full-sequence loss). Proper fix deferred: pass `response_template` as the **in-context token ids** (encode it with a leading content token and strip, or use `DataCollatorForCompletionOnlyLM(response_template=<ids>, ...)`), then re-verify non-masked labels > 0 before trusting a run.
+- **notes:**
+  - **T2.9's assistant-only loss was never functional.** Any prior "T2.9 measurement" would have been garbage (untrained adapter). The other two T2.9 changes (fast-path relocation, `max_grad_norm=1e9`) are independent and unaffected. Branch hygiene: the assistant-only-loss portion of T2.9 should be treated as reverted until the token-id fix lands.
+  - **Detection rule:** `loss == 0.0` **and** `grad_norm == 0.0` at the first SFT log step ⇒ all labels masked ⇒ kill immediately; do not wait for eval. Never gauge masking by warning frequency (`warnings.warn` dedups) — count non-masked labels through the actual collator on a few examples.
+
+### F-015 — `/workspace` MooseFS volume quota (~48 GB) is too small for the 60 GB model; `df` hides it
+
+- **timestamp:** 2026-05-30 10:00 UTC (surfaced) / 10:09 UTC (worked around)
+- **phase:** model_load (weights download / disk)
+- **signature:**
+
+  `train.py` restart (the F-014 fallback run) failed at exit 1 with two coupled symptoms:
+
+  ```
+  tee: train.log: Disk quota exceeded
+  ...
+  OSError: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 does not appear to have
+  files named ('model-00006-of-00013.safetensors', ... 'model-00012-of-00013.safetensors').
+  (raised from transformers/utils/hub.py:cached_files — the remaining 7 shards
+  could not be written)
+  ```
+
+  A bare 1 MB write confirmed the quota, while `df` showed terabytes free:
+
+  ```
+  $ dd if=/dev/zero of=/workspace/.qt bs=1M count=1
+  dd: ... Disk quota exceeded            # EDQUOT, not ENOSPC
+  $ df -h /workspace
+  mfs#us-md-1.runpod.net:9421  334T  248T  87T  75% /workspace   # cluster, not the volume
+  ```
+
+- **hypothesized root cause:** `/workspace` is a RunPod Volume Disk backed by MooseFS with a **per-volume quota (~48 GB on this pod)**. MooseFS enforces the quota with `EDQUOT`, but `df` reports the *cluster* free space (87 TB), so the limit is invisible to the usual disk check. The model is ~60 GB (13 BF16 shards), so it cannot fit — the pod was provisioned below `runpod-setup.md`'s **Disk ≥ 100 GB** requirement. The download wedged once the cache hit ~47 GB; the partial 7th shard plus `train.log` writes both hit `EDQUOT`.
+- **attempts:**
+  - Removed the dead `*.incomplete` partials → freed ~20 GB (cache 47 → 27 GB, 6/13 complete shards retained), writes worked again — but full model (~60 GB) still exceeds the ~48 GB ceiling, so this only defers the wall to ~shard 10.
+  - Checked every mount for alternative space: `/root` `/tmp` `/mnt` are the same 30 GB overlay (21 GB free, too small); the 28 T xfs and 1.8 T ext4 devices are **single-file bind-mounts** (`/etc/hosts`, `/usr/bin/nvidia-smi`), not general writable dirs.
+  - Found the pod has **2 TB RAM** (1.86 TB free) and `/dev/shm` is a **117 GB tmpfs**. Set `HF_HOME=/dev/shm/hf`, copied the 6 cached shards `/workspace → /dev/shm` with `cp -a` (preserves the blob/snapshot symlink layout so HF reuses them), restarted `train.py` → all 13 shards downloaded into RAM (~60 GB), checkpoint shards loaded 100 %, model resident in VRAM (60.8 GB). Adapter output (~3.5 GB) still targets `/workspace` and fits in the remaining quota.
+- **final state:** worked-around (HF cache on `/dev/shm` RAM tmpfs).
+- **notes:**
+  - **`df` is the wrong tool for MooseFS quotas** — it shows cluster capacity, never the per-volume cap. Detect the real ceiling with a write test (`dd ... && rm`) or by watching for `EDQUOT` ("Disk quota exceeded", distinct from ENOSPC "No space left on device"). Pre-flight worth adding to § 2: after the MooseFS check, `dd` a probe file to confirm the volume can actually hold ≥ 100 GB.
+  - **`/dev/shm` is RAM, not disk** — viable here *only* because the pod has 2 TB RAM; it is **ephemeral** (wiped on pod stop/restart → re-download ~60 GB next session) and consumes 60 GB of RAM while resident. Fine for an active session; not a substitute for a correctly sized volume.
+  - **Persistent fix:** enlarge the RunPod Volume Disk to ≥ 100 GB (the documented requirement) or relaunch on a pod that meets it. Then the HF cache returns to `/workspace` (large sequential I/O is where MooseFS is fine — see F-007) and survives restarts.
+
+### F-014 — `hf_transfer` weights download deadlocks after 6 shards (F-010 sibling: the *other* fast-download stack hangs)
+
+- **timestamp:** 2026-05-30 09:35 UTC (download start) / 09:51 UTC (deadlock confirmed) / 09:56 UTC (worked around)
+- **phase:** model_load (weights download)
+- **signature:**
+
+  `python train.py` froze partway through the model-shard download — stuck at **28 GB / ~60 GB (6 of 13 shards)** with no progress for ~16 min:
+
+  ```
+  train.log static since 09:35:43 (last line: "Loading model: nvidia/...").
+  python PID 8823: 119 threads, ALL in `futex_wait_queue` (main thread 0.5% CPU,
+    every worker 0.0%).
+  One frozen *.incomplete shard at 4,999,410,040 bytes — byte count constant
+    across ~3 min of samples.
+  25 ESTABLISHED TCP connections to HF CDN (160.79.104.10 etc.) but IDLE:
+    Recv-Q / Send-Q all 0.
+  NIC RX: 0 MB over a 20 s window, 22 KB over a 15 s window (keepalives only).
+  /proc/8823/environ: HF_XET_HIGH_PERFORMANCE absent, HF_HUB_ENABLE_HF_TRANSFER=1.
+  ```
+
+- **hypothesized root cause:** This is **not** F-010 — `HF_XET_HIGH_PERFORMANCE` was already unset (the F-010 workaround was applied). With xet disabled, `huggingface_hub` routed the download through the **other** Rust fast-path client, `hf_transfer` (`HF_HUB_ENABLE_HF_TRANSFER=1`, pod-set). That stack wedged after 6 shards: worker threads parked, the main thread blocked on a futex waiting for a completion event that never arrived, TCP connections left open but idle. Same *flavour* as F-010 (a parallel-download coordinator hang) but a distinct code path. Whether it is an `hf_transfer` bug or a MooseFS-write interaction at the moment of the hang wasn't isolated; the practical effect is identical — the download cannot finish.
+- **attempts:**
+  - Ruled out F-010 by reading `/proc/PID/environ` (xet already off) and confirmed the hang signature (119 futex-parked threads, 0 RX over two windows, idle connections, frozen `.incomplete`).
+  - `TaskStop` on the run, removed the stuck `*.incomplete` (no `.lock` files present), preserved the 6 good shards.
+  - Restarted `train.py` with **both** `HF_XET_HIGH_PERFORMANCE` and `HF_HUB_ENABLE_HF_TRANSFER` unset → plain `huggingface_hub` downloader → download **resumed actively** (5+ GB over 15 s, all 7 remaining shards in flight). The plain downloader later completed all 13 shards without hanging (it then hit the *separate* `/workspace` quota wall — see F-015).
+- **final state:** worked-around (disable *both* fast-download stacks; the plain downloader is slower but does not deadlock).
+- **notes:**
+  - **Extends F-010's lesson.** F-010 said "when multiple fast-download stacks are enabled, pick one." F-014 adds: if the *remaining* one also hangs, drop it too and fall back to the vanilla downloader. For the RunPod weights download, the reliable config is `unset HF_XET_HIGH_PERFORMANCE; unset HF_HUB_ENABLE_HF_TRANSFER` (keep `hf_transfer` *installed* per F-008, just don't enable its env flag).
+  - **Detection rule:** a frozen `*.incomplete` + threads in `futex_wait_queue` + **zero NIC RX** over a real interval = download deadlock, regardless of which client. `df`/connection-count alone lie — 25 ESTABLISHED-but-idle connections looked "active" until the RX delta proved 0. Always measure RX (or `.incomplete` byte growth) over a real ≥10 s window.
+  - Second reproduction would justify promoting an "unset both" guard into `runpod-setup.md` § 6 (alongside the F-010 § 5 guard), per the methodology's promote-on-reproduce threshold.
+
 ### F-013 — `bootstrap.sh` torch drift: unpinned `mamba_ssm` pulls torch 2.12/cu13, breaking the CUDA builds against system CUDA 12.8
 
 - **timestamp:** 2026-05-30 08:36 UTC (first failure) / 08:59 UTC (resolved)

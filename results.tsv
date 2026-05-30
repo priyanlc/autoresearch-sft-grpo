@@ -2,3 +2,4 @@ commit	metric	bit_ops	cipher	gravity	numeral	symbol	unit_conv	status	description
 0831311	0.5667	60	20	20	100	40	100	success	baseline restoration on fresh A100 80GB pod after T1.14/T1.15; +0.0334 vs c1bb0a6 (cipher 0->20)
 cdb1aa7	0.5333	60	0	20	100	40	100	success	T2.7 SFT_SAMPLES_PER_TYPE 200->300; -0.0334 vs T1.16 (cipher 1/5->0/5); 1-sample noise; reverted
 c4a9d1c	0.6000	20	0	100	100	40	100	success	T2.8 fix F-011 dynamic-CoT regexes; gravity 1/5->5/5 (real signal); cipher fix structural; sanity check F-012
+2b38ee5	0.6667	40	20	100	100	40	100	success	T2.10 cipher char-by-char CoT + symbol arith CoT + F-016 (revert broken assistant-only collator -> full-seq loss); +0.0667 vs T2.8 (cipher 0->1/5 targeted; bit_ops 1->2/5 likely variance; symbol unchanged 2/5)
