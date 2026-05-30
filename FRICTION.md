@@ -44,6 +44,47 @@ Copy this block for each new entry. **Newer entries go at the top of the Entries
 
 <!-- Append new entries below this line, newest first. Use sequential ids: F-001, F-002, ... -->
 
+### F-017 — vLLM eval (T2.14) infeasible on the cu121 pin: vLLM 0.6.6 lacks `NemotronHForCausalLM`, and a version that has it needs torch ≥ 2.6
+
+- **timestamp:** 2026-05-30 20:24 UTC
+- **phase:** eval (tooling)
+- **signature:**
+
+  `./verify_vllm_eval.sh` reached the eval step and crashed:
+
+  ```
+  === 4. F-013 drift detection (post-install) ===
+  torch=2.5.1+cu121 / mamba_ssm=2.3.1 / causal_conv1d=1.6.2.post1   [PASS] pins intact
+  === 5. Run vllm_eval.py ... ===
+  Traceback (most recent call last):
+    File ".../vllm/config.py", line 16, in <module>
+      from pydantic import BaseModel, Field, PrivateAttr
+  ModuleNotFoundError: No module named 'pydantic'
+  ```
+
+  Deeper blocker found while triaging the dep gap — the installed vLLM does not
+  support the model architecture at all:
+
+  ```
+  model config: architectures=['NemotronHForCausalLM'], model_type='nemotron_h'
+  vllm 0.6.6.post1 model_executor/models/: nemotron.py (DENSE), mamba.py (pure Mamba)
+    — NO nemotron_h.py, and grep 'NemotronHForCausalLM|nemotron_h' => no matches.
+  ```
+
+- **hypothesized root cause:** Two layered problems, the second fatal on this branch:
+  1. `verify_vllm_eval.sh` installs vLLM with `--no-deps` (to protect the F-013 pins) and adds only `ray`. But vLLM needs ~30 runtime deps (`pydantic`, `fastapi`, `outlines`, `msgspec`, `xgrammar`, `compressed-tensors`, …); `import vllm` fails on the first missing one (`pydantic`).
+  2. **Architecture support gap.** vLLM 0.6.6.post1 (the version whose `torch==2.5.1` constraint is satisfied by our `2.5.1+cu121`) predates the hybrid `nemotron_h` (Mamba2+MoE+attention) support. The model is `NemotronHForCausalLM`, which 0.6.6 cannot load. vLLM gained `nemotron_h` support only in a later release (~0.8+, 2025), which **requires torch ≥ 2.6 (cu12.4+)** — installing that would replace `torch 2.5.1+cu121` and ABI-break the cu121-compiled `mamba_ssm 2.3.1` / `causal_conv1d 1.6.2.post1` (the exact F-013 drift). So the cu121 pin and a `nemotron_h`-capable vLLM are mutually exclusive on one env.
+- **attempts:**
+  - Ran `./verify_vllm_eval.sh` end-to-end: pre-flight PASS; vLLM 0.6.6.post1 + ray installed; **F-013 drift detection PASS** (pins unchanged — the `--no-deps` protection worked); `vllm_eval.py` crashed at `import vllm` (`pydantic` missing).
+  - Enumerated vLLM's `Requires-Dist`, separated torch-coupled (`torch`/`torchvision`/`xformers`) from pure-Python deps. Before installing the ~30 pure-Python deps, grepped the vLLM model registry for `nemotron_h` → **absent**. Stopped — completing the deps would dead-end at "architecture not supported."
+  - Did **not** install the dep set; did **not** upgrade vLLM (would break F-013).
+- **final state:** blocked / won't-fix on the cu121-pinned `main`. The vLLM eval speedup (T2.14, ~3 h → ~5 min) is not achievable on this branch's environment.
+- **notes:**
+  - **`USE_VLLM_EVAL` must stay `False` on `main`.** The T2.14 scaffolding (`vllm_eval.py`, `verify_vllm_eval.sh`, the flag) is inert and should remain so here. A cheap guard worth adding: `vllm_eval.py` should detect `model_type == 'nemotron_h'` + the installed vLLM version and refuse with a clear message, so the next session doesn't re-walk this.
+  - **The viable eval-speedup on this env is the F-001 KV-cache patch** (in-place fixes to the cached `modeling_nemotron_h.py`), which works within torch 2.5.1 and drops eval ~3 h → ~10 min while also unlocking GRPO. See F-001 § "Impact / cost".
+  - **Cleanup:** `vllm` and `ray` were uninstalled after this diagnosis (unusable for `nemotron_h`); F-013 pins re-verified intact afterward.
+  - If a `nemotron_h` vLLM eval is ever wanted, it belongs on a **separate pod/branch** built on torch ≥ 2.6 from the start — not retrofitted onto the cu121 anchor.
+
 ### F-016 — T2.9's `DataCollatorForCompletionOnlyLM` masks every token → SFT loss 0.0, zero gradient (assistant-only loss never worked)
 
 - **timestamp:** 2026-05-30 10:50 UTC

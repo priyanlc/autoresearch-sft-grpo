@@ -26,6 +26,17 @@ Block template (per program.md):
 End-of-session summary blocks go at the very top under the heading `### Session Summary YYYY-MM-DD`.
 -->
 
+### 2026-05-30 — T2.14 verification RESULT: vLLM eval infeasible on the cu121 pin (F-017) — keep USE_VLLM_EVAL=False
+
+- **Current best METRIC:** 0.6667 (T2.10) — unchanged. This entry records a *negative* tooling result, no train.py run.
+- **Experiments since last status:** 0 (verification only).
+- **What was tried:** Ran `./verify_vllm_eval.sh` on the live pod against the T2.10 adapter. Outcome: pre-flight PASS; vLLM 0.6.6.post1 + ray installed; **F-013 drift detection PASS** (torch 2.5.1+cu121 / mamba_ssm 2.3.1 / causal_conv1d 1.6.2.post1 all intact through the `--no-deps` install — the protection works). But `vllm_eval.py` crashed at `import vllm` (`ModuleNotFoundError: pydantic` — `--no-deps` + only-`ray` is insufficient; vLLM needs ~30 deps). Triaging that surfaced the **fatal** blocker: vLLM 0.6.6.post1's `model_executor/models/` has `nemotron.py` (dense) and `mamba.py` (pure Mamba) but **no `nemotron_h.py` / `NemotronHForCausalLM`** — and the model is `NemotronHForCausalLM` (`model_type=nemotron_h`). vLLM gained `nemotron_h` support only in ~0.8+ (2025), which requires **torch ≥ 2.6 (cu12.4+)** → would break the entire F-013 cu121 stack. So the cu121 pin and a `nemotron_h`-capable vLLM are mutually exclusive. Did NOT install the dep set or upgrade vLLM (pointless / unsafe). Full analysis: **FRICTION.md F-017**. Net effect: **neutral** (no train.py change; `vllm` + `ray` uninstalled afterward, pins re-verified).
+- **Files swept:** `FRICTION.md` (F-017), this STATUS entry. No code change; the T2.14 scaffolding (`vllm_eval.py`, `verify_vllm_eval.sh`, `USE_VLLM_EVAL` flag) is left inert (`USE_VLLM_EVAL=False`).
+- **Next:** Do NOT re-attempt vLLM eval on the cu121 branch. The viable eval-speedup here is the **F-001 KV-cache patch** (works within torch 2.5.1: eval ~3 h → ~10 min, also unlocks GRPO). A `nemotron_h` vLLM eval, if ever wanted, needs a separate torch ≥ 2.6 pod/branch. Cheap follow-up: add a `model_type=='nemotron_h'` guard to `vllm_eval.py` so the next session fails fast with a clear message.
+- **Blockers:** F-017 (vLLM eval infeasible on cu121, won't-fix here). F-013 pins unchanged.
+
+---
+
 ### 2026-05-30 — T2.14 vLLM eval scaffolding (Gap A); default OFF pending first pod verification
 
 - **Current best METRIC:** 0.6667 (T2.10) — unchanged. T2.14 is scaffolding only; no measured run yet.
